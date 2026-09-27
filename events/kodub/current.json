@@ -1,14 +1,14 @@
 {
-  "serverTime": "2026-09-22T02:56:43.550Z",
+  "serverTime": "2026-09-27T22:52:14.638Z",
   "current": {
-    "trackId": "5c891c15c754987ff7e1358000f265d26aa959716c443dec80f668762c3d83d7",
-    "name": "La Riviera",
-    "author": "Blu3bolt",
-    "lastModified": "2026-09-20T20:52:41.000Z",
+    "trackId": "ee0befb4adf0351b40f066e27264de42ba62281ba564c942f6f3c3f5cda36998",
+    "name": "Horrice",
+    "author": "Karpin_",
+    "lastModified": "2026-09-20T04:39:16.000Z",
     "environment": 0,
-    "endTime": "2026-09-27T20:00:00.000Z",
-    "trackUrl": "assets/aa5e949dbd8e18caab0fc3697f9ef10c72cf1d5acccfd0b9d618663f35131542.track",
-    "thumbnailUrl": "assets/1ee50cc80e3bdd13b4163f00f13a3dd1ce2688f9977ebc5e807ed1d63b7605ac.webp",
-    "coverUrl": "assets/f629831ed227d1a9bfccb7a25efa8564b3737e07fda5c7e67fce73ff1965e28c.webp"
+    "endTime": "2026-10-04T20:00:00.000Z",
+    "trackUrl": "assets/43e09022e4aeae3a15b0e6d74afc2cb5704c962cc1aa05fb54448034bd26d901.track",
+    "thumbnailUrl": "assets/404a308bd31338cdefdbd9072c78271d17e4d668ba32201518b2f493755559cc.webp",
+    "coverUrl": "assets/381639fb963f3588a4c3f7c3487976f840a4c89987ad8c49f2c3f96443af2fec.webp"
   }
 }
