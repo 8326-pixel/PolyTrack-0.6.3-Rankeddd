@@ -281,6 +281,14 @@ export function mountArchiveView(root, options = {}) {
     const initialRacers = declaredRacerCount(period);
     const count = appendText(document, summary, 'span', 'sq-archive-count',
       initialRacers === null ? 'Open standings' : `${initialRacers} ${initialRacers === 1 ? 'racer' : 'racers'}`);
+    const disableEmpty = () => {
+      details.open = false;
+      details.classList.add('sq-archive-event-empty');
+      summary.setAttribute('aria-disabled', 'true');
+      summary.tabIndex = -1;
+    };
+    if (initialRacers === 0) disableEmpty();
+    summary.addEventListener('click', event => { if (details.classList.contains('sq-archive-event-empty')) event.preventDefault(); });
     details.append(summary);
     const board = document.createElement('div');
     board.className = 'sq-archive-board';
@@ -302,6 +310,7 @@ export function mountArchiveView(root, options = {}) {
     const showSnapshot = snapshot => {
       const counts = archivePeriodCounts(period, snapshot);
       snapshots.set(period.id, snapshot);
+      if (counts.racers === 0) disableEmpty();
       count.replaceChildren();
       appendText(document, count, 'span', 'sq-archive-racer-count', `${counts.racers} ${counts.racers === 1 ? 'racer' : 'racers'}`);
       count.append(document.createTextNode(' | '));
@@ -317,6 +326,7 @@ export function mountArchiveView(root, options = {}) {
     if (snapshots.has(period.id)) showSnapshot(snapshots.get(period.id));
 
     details.addEventListener('toggle', () => {
+      if (details.classList.contains('sq-archive-event-empty')) { details.open = false; return; }
       if (!details.open || snapshots.has(period.id) || loading) return;
       if (!loadSnapshot) {
         results.replaceChildren();

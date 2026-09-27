@@ -25,6 +25,8 @@ test('archive UI exposes local page controls and accurate practice label', () =>
   assert.match(source, /appendText\(document, pagination, 'button', 'button', 'Next'\)/);
   assert.match(source, /Page \$\{pageInfo\.page\} of \$\{pageInfo\.pageCount\}/);
   assert.match(source, /Track details \/ practice/);
+  assert.match(source, /if \(initialRacers === 0\) disableEmpty\(\)/);
+  assert.match(source, /if \(counts\.racers === 0\) disableEmpty\(\)/);
 });
 
 test('events UI keeps permanent Rolling live, archives practice-only, and does not publish scoring formulas', () => {

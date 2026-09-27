@@ -51,7 +51,7 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
   let page = 1;
   let pendingAction = false;
   let cachedRecords = null;
-  const state = { search: '', source: '', tag: '', difficulty: '', curated: false, completion: 'all', sort: 'recommended' };
+  const state = { search: '', source: '', tags: [], difficulty: '', curated: false, completion: 'all', sort: 'recommended' };
   const make = (tag, className, content) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -114,12 +114,16 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
   };
   const sourceField = selectField('Source', [['', 'All sources']]);
   const tagField = selectField('Style', [['', 'All styles']]);
+  const selectedTags = make('div', 'sq-extra-selected-tags');
+  selectedTags.setAttribute('aria-label', 'Selected styles');
+  tagField.label.append(selectedTags);
   const difficultyField = selectField('Difficulty', [['', 'Any level'], ...DIFFICULTY_LABELS.slice(1).map((label, index) => [String(index + 1), label])]);
   const completionField = selectField('Progress', [['all', 'All tracks'], ['completed', 'Completed'], ['uncompleted', 'Not completed'], ['loaded', 'Imported, not completed']]);
   const sortChoices = [['recommended', 'Recommended'], ['name', 'Name A-Z'], ['author', 'Author A-Z']];
   if (Array.isArray(entries) && entries.some(entry => Number.isSafeInteger(entry?.sizeBytes) && entry.sizeBytes >= 0)) sortChoices.push(['size-largest', 'Largest track'], ['size-smallest', 'Smallest track']);
   if (Array.isArray(entries) && entries.some(entry => Number.isSafeInteger(entry?.sourceCopies) && entry.sourceCopies >= 0 || Number.isSafeInteger(entry?.sourcePlays) && entry.sourcePlays >= 0)) sortChoices.push(['plays', 'Most plays']);
   if (typeof getLocalRating === 'function') sortChoices.push(['my-rating', 'My ratings']);
+  if (Array.isArray(entries) && entries.some(entry => Number.isFinite(Date.parse(entry?.codeModifiedAt)))) sortChoices.push(['date-newest', 'Newest code update'], ['date-oldest', 'Oldest code update']);
   const sortField = selectField('Sort', sortChoices);
   const curatedLabel = make('label', 'sq-extra-check');
   const curated = make('input');
@@ -363,12 +367,19 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
     body.append(facts);
     const actions = make('div', 'sq-extra-actions');
     actions.append(button('Import and play', 'sq-extra-play', () => runAction('play', onPlay, entry)));
-    actions.append(button('Report', 'sq-extra-report-button', () => {
+    const more = button('...', 'sq-extra-more', () => { moreMenu.hidden = !moreMenu.hidden; more.setAttribute('aria-expanded', String(!moreMenu.hidden)); });
+    more.setAttribute('aria-label', `More actions for ${text(entry.name, 'this track')}`);
+    more.setAttribute('aria-expanded', 'false');
+    const moreMenu = make('div', 'sq-extra-more-menu');
+    moreMenu.hidden = true;
+    moreMenu.append(button('Report track', 'sq-extra-report-button', () => {
+      moreMenu.hidden = true; more.setAttribute('aria-expanded', 'false');
       reportingEntry = entry; reportEntry.textContent = text(entry.name, 'Untitled track');
       reportStatus.hidden = true; reportStatus.textContent = '';
       for (const choice of reportChoices.children) choice.children[0].checked = false;
       reportModal.hidden = false;
     }));
+    actions.append(more, moreMenu);
     body.append(actions);
     article.append(body);
     return article;
@@ -385,14 +396,14 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
     const tagCounts = new Map();
     for (const entry of all) for (const tag of new Set(entry.tags || [])) if (tags.includes(tag)) tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
     options(sourceField.select, sources, 'All sources', state.source, sourceCounts);
-    options(tagField.select, tags, 'All styles', state.tag, tagCounts);
+    options(tagField.select, tags, 'Add a style', '', tagCounts);
     options(difficultyField.select, DIFFICULTY_LABELS.slice(1).map((_, index) => String(index + 1)), 'Any level', state.difficulty, difficultyCounts);
     // The native select stays keyboard-accessible; the count is visually aligned at its right edge.
     for (const option of difficultyField.select.children) if (option.value) option.textContent = `${option.value} · ${DIFFICULTY_LABELS[Number(option.value)]} (${difficultyCounts.get(option.value) || 0})`;
     filterCount(sourceField, state.source ? sourceCounts.get(state.source) || 0 : all.length);
-    filterCount(tagField, state.tag ? tagCounts.get(state.tag) || 0 : all.length);
+    filterCount(tagField, state.tags.length ? all.filter(entry => state.tags.every(tag => entry.tags?.includes(tag))).length : all.length);
     filterCount(difficultyField, state.difficulty ? difficultyCounts.get(state.difficulty) || 0 : all.length);
-    for (const [field, value, fallback] of [[sourceField, state.source, 'All sources'], [tagField, state.tag, 'All styles'], [difficultyField, state.difficulty, 'Any level']]) {
+    for (const [field, value, fallback] of [[sourceField, state.source, 'All sources'], [difficultyField, state.difficulty, 'Any level']]) {
       const selected = [...field.select.children].find(option => option.value === value);
       if (selected) selected.textContent = value ? field === difficultyField ? `${value} · ${DIFFICULTY_LABELS[Number(value)]}` : value : fallback;
     }
@@ -404,7 +415,14 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
       }));
     }
     state.source = sourceField.select.value;
-    state.tag = tagField.select.value;
+    selectedTags.replaceChildren();
+    for (const tag of state.tags) {
+      const remove = button(`${tag.replaceAll('-', ' ')} x`, 'sq-extra-selected-tag', () => {
+        state.tags = state.tags.filter(value => value !== tag); page = 1; render();
+      });
+      remove.setAttribute('aria-label', `Remove ${tag.replaceAll('-', ' ')} style`);
+      selectedTags.append(remove);
+    }
     const query = state.search.toLocaleLowerCase();
     if (!cachedRecords) cachedRecords = all.map(entry => {
       let best = null, loaded = false, rating = null;
@@ -431,7 +449,7 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
       // A curator can mark a track by tier or by the curated tag.
       const isCurated = text(entry.tier).toLocaleLowerCase() === 'curated' || entryTags.some(tag => tag.toLocaleLowerCase() === 'curated');
       return (!query || searchable.includes(query)) && (!state.source || entry.source === state.source) &&
-        (!state.tag || entryTags.includes(state.tag)) && (!state.curated || isCurated) &&
+        state.tags.every(tag => entryTags.includes(tag)) && (!state.curated || isCurated) &&
         (!state.difficulty || difficulty(entry) === Number(state.difficulty)) &&
         (state.completion === 'all' || state.completion === 'completed' && best !== null ||
           state.completion === 'uncompleted' && best === null || state.completion === 'loaded' && loaded && best === null);
@@ -447,6 +465,11 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
         if (aSize === null || bSize === null) return aSize === bSize ? compare(a.entry.name, b.entry.name) : aSize === null ? 1 : -1;
         return (state.sort === 'size-largest' ? bSize - aSize : aSize - bSize) || compare(a.entry.name, b.entry.name);
       }
+      if (state.sort === 'date-newest' || state.sort === 'date-oldest') {
+        const aDate = Date.parse(a.entry.codeModifiedAt), bDate = Date.parse(b.entry.codeModifiedAt);
+        if (!Number.isFinite(aDate) || !Number.isFinite(bDate)) return Number.isFinite(aDate) ? -1 : Number.isFinite(bDate) ? 1 : compare(a.entry.name, b.entry.name);
+        return (state.sort === 'date-newest' ? bDate - aDate : aDate - bDate) || compare(a.entry.name, b.entry.name);
+      }
       if (state.sort === 'author') return compare(displayAuthor(a.entry), displayAuthor(b.entry)) || compare(a.entry.name, b.entry.name);
       if (state.sort === 'recommended') return Number(text(b.entry.tier).toLowerCase() === 'curated') - Number(text(a.entry.tier).toLowerCase() === 'curated') || compare(a.entry.name, b.entry.name);
       return compare(a.entry.name, b.entry.name);
@@ -456,7 +479,11 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
     count.textContent = `${records.length} of ${all.length} tracks`;
     list.replaceChildren();
     const visible = records.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-    if (!visible.length) list.append(make('p', 'sq-extra-empty', all.length ? 'No tracks match these filters.' : 'No extra tracks are available yet.'));
+    if (!visible.length) {
+      const empty = make('div', 'sq-extra-empty', all.length ? 'No tracks match these filters.' : 'No extra tracks are available yet.');
+      if (all.length) empty.append(button('Clear filters', 'sq-extra-clear', clearFilters));
+      list.append(empty);
+    }
     for (const { entry, best, loaded } of visible) list.append(card(entry, best, loaded));
     pagination.replaceChildren();
     const previous = button('Previous', '', () => { page--; render(); });
@@ -464,6 +491,13 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
     const next = button('Next', '', () => { page++; render(); });
     next.disabled = page >= pages;
     pagination.append(previous, make('span', '', `Page ${page} of ${pages}`), next);
+  }
+
+  function clearFilters() {
+    Object.assign(state, { search: '', source: '', tags: [], difficulty: '', curated: false, completion: 'all', sort: 'recommended' });
+    search.value = ''; sourceField.select.value = ''; difficultyField.select.value = '';
+    completionField.select.value = 'all'; sortField.select.value = 'recommended'; curated.checked = false;
+    page = 1; render();
   }
 
   function close() {
@@ -516,7 +550,11 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
 
   search.addEventListener('input', () => { state.search = search.value.trim(); page = 1; render(); });
   sourceField.select.addEventListener('change', () => { state.source = sourceField.select.value; page = 1; render(); });
-  tagField.select.addEventListener('change', () => { state.tag = tagField.select.value; page = 1; render(); });
+  tagField.select.addEventListener('change', () => {
+    const value = tagField.select.value;
+    if (value && !state.tags.includes(value)) state.tags.push(value);
+    tagField.select.value = ''; page = 1; render();
+  });
   difficultyField.select.addEventListener('change', () => { state.difficulty = difficultyField.select.value; page = 1; render(); });
   completionField.select.addEventListener('change', () => { state.completion = completionField.select.value; page = 1; render(); });
   sortField.select.addEventListener('change', () => { state.sort = sortField.select.value; page = 1; render(); });

@@ -279,6 +279,10 @@ test('track reports expose exactly three reasons and report clear success or fai
   const reports = [];
   const { root, api } = fixture([entry(1)], { onReport: async (item, reason) => { reports.push([item, reason]); } });
   api.open();
+  const more = cls(root, 'sq-extra-more')[0];
+  assert.equal(cls(root, 'sq-extra-more-menu')[0].hidden, true);
+  await click(more);
+  assert.equal(more.getAttribute('aria-expanded'), 'true');
   await click(cls(root, 'sq-extra-report-button')[0]);
   const modal = cls(root, 'sq-extra-report-modal')[0];
   const choices = cls(root, 'sq-extra-report-choice');
@@ -293,6 +297,7 @@ test('track reports expose exactly three reasons and report clear success or fai
 
   const failed = fixture([entry(2)], { onReport: async () => { throw Error('private detail'); } });
   failed.api.open();
+  await click(cls(failed.root, 'sq-extra-more')[0]);
   await click(cls(failed.root, 'sq-extra-report-button')[0]);
   cls(failed.root, 'sq-extra-report-choice')[0].children[0].checked = true;
   await click(cls(failed.root, 'sq-extra-report-send')[0]);
@@ -309,6 +314,43 @@ test('empty entries still mount and show an accurate zero count', () => {
   assert.match(cls(root, 'sq-extra-empty')[0].textContent, /No extra tracks/);
   api.refresh();
   assert.equal(cls(root, 'sq-extra-count')[0].textContent, '0 of 0 tracks');
+});
+
+test('multiple styles combine, and empty results offer a reset', async () => {
+  const { root, api } = fixture([
+    entry(1, { tags: ['technical', 'speed'] }),
+    entry(2, { tags: ['technical'] }),
+    entry(3, { tags: ['speed'] })
+  ]);
+  api.open();
+  const style = tag(cls(root, 'sq-extra-field')[2], 'select')[0];
+  style.value = 'technical'; await style.dispatch('change');
+  style.value = 'speed'; await style.dispatch('change');
+  assert.deepEqual(cls(root, 'sq-extra-card').map(card => tag(card, 'h3')[0].textContent), ['Track 01']);
+  assert.equal(cls(root, 'sq-extra-selected-tag').length, 2);
+  const search = tag(cls(root, 'sq-extra-field')[0], 'input')[0];
+  search.value = 'not here'; await search.dispatch('input');
+  assert.equal(cls(root, 'sq-extra-card').length, 0);
+  await click(cls(root, 'sq-extra-clear')[0]);
+  assert.equal(cls(root, 'sq-extra-card').length, 3);
+  assert.equal(cls(root, 'sq-extra-selected-tag').length, 0);
+  api.destroy();
+});
+
+test('code date sorting places undated tracks last in both directions', async () => {
+  const { root, api } = fixture([
+    entry(1, { codeModifiedAt: '2026-09-20T00:00:00Z' }),
+    entry(2, { codeModifiedAt: null }),
+    entry(3, { codeModifiedAt: '2026-09-23T00:00:00Z' })
+  ]);
+  api.open();
+  const sort = tag(cls(root, 'sq-extra-field')[5], 'select')[0];
+  const names = () => cls(root, 'sq-extra-card').map(card => tag(card, 'h3')[0].textContent);
+  sort.value = 'date-newest'; await sort.dispatch('change');
+  assert.deepEqual(names(), ['Track 03', 'Track 01', 'Track 02']);
+  sort.value = 'date-oldest'; await sort.dispatch('change');
+  assert.deepEqual(names(), ['Track 01', 'Track 03', 'Track 02']);
+  api.destroy();
 });
 
 test('Escape closes menu and CSS defines narrow responsive layout', () => {

@@ -31,6 +31,13 @@ test('Studio shortcuts avoid inputs and Ranked removes full-screen blur',()=>{
  assert.match(extract('setupRacerStudio'),/e\.target\.closest\('input,textarea,select/);
  assert.match(source,/#overallLeaderboardPanel\{backdrop-filter:none!important\}/);
 });
+test('track-menu shortcuts avoid typing and Ranked freshness timer stops on close',()=>{
+ assert.match(extract('handleTrackMenuShortcut'),/HTMLInputElement/);
+ assert.match(extract('handleTrackMenuShortcut'),/ArrowLeft/);
+ assert.match(extract('handleTrackMenuShortcut'),/Digit\(\[1-3\]\)/);
+ assert.match(extract('closeOverallPanel'),/clearInterval\(rankedFreshnessTimer\)/);
+ assert.match(source,/if\(handleTrackMenuShortcut\(event\)\)return/);
+});
 for(const direction of [1,-1])test(`profile unknown results sort last in direction ${direction}`,()=>{
  const ctx={profileSort:'time',profileSortDirection:direction,knownFinishWeight:x=>x.weight,trackInfo:()=>({name:'track'})};
  const result=run('sortProfileFinishes',ctx)([{timeMs:null},{timeMs:2000},{timeMs:1000},{timeMs:undefined}]);

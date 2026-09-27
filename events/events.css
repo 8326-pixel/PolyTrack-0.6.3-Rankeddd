@@ -429,6 +429,8 @@ body.sq-event-active .track-info-ui{background:#1b2854}
 .sq-archive-event{background:#17264e;border-left:4px solid #6485b5}
 .sq-archive-event[open]{border-left-color:#9bdff2}
 .sq-archive-event-summary{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:14px;align-items:center;padding:12px;cursor:pointer;list-style:none}
+.sq-archive-event-empty{opacity:.58;filter:saturate(.55)}
+.sq-archive-event-empty .sq-archive-event-summary{cursor:not-allowed}
 .sq-archive-event-summary::-webkit-details-marker{display:none}
 .sq-archive-event-summary:focus-visible{outline:3px solid #fff;outline-offset:-3px}
 .sq-archive-thumb{display:flex;align-items:center;justify-content:center;width:72px;height:72px;overflow:hidden;background:#101d40}

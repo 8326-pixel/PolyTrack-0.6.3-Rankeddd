@@ -39,6 +39,8 @@
   // Persist the oversized challenge policy even when it is launched from saved Custom Tracks.
   const unrankedExtraTrackIds=new Set(['586fbb2ef6e638f8d22e050342896497f22da6302ff081e434aa17bf6f75cf87']),unrankedExtraRecordings=new Set();
   let extraTracksCatalogPromise=null,extraTracksUiPromise=null,extraTracksUi=null;
+  const extraTrackInfoById=new Map();
+  let extraProfileRefreshPending=false;
   let extraTrackRaceRows=[],extraTrackKnownIds={};
   let eventUi=null,eventUiPromise=null,eventQueueChecked=false,eventModuleRetryAt=0;
   let lastEventUiTickAt=0;
@@ -174,13 +176,15 @@
       .then(data=>{
         if(!Array.isArray(data)||data.length>5000)throw Error('Extra Tracks catalog is invalid.');
         const ids=new Set();
-        return data.filter(entry=>{
+        const valid=data.filter(entry=>{
           const trustedPath=/^extra-tracks\/track-data\/[a-z0-9-]+\/[a-z0-9-]+\.track$/.test(entry?.trackPath||'');
           const localChallenge=entry?.ranked===false&&/^extra-tracks\/challenges\/[a-z0-9-]+\.track$/.test(entry.trackPath||'');
           if(!entry||typeof entry.id!=='string'||!/^[a-z0-9-]{1,80}$/.test(entry.id)||ids.has(entry.id)||!/^[a-f0-9]{64}$/.test(entry.trackId||'')||typeof entry.name!=='string'||!entry.name.trim()||(!trustedPath&&!localChallenge))return false;
           if(localChallenge)unrankedExtraTrackIds.add(entry.trackId);
           ids.add(entry.id);return true;
         });
+        for(const entry of valid)extraTrackInfoById.set(entry.trackId,{id:entry.trackId,name:entry.name,type:'extra',trackUrl:entry.trackPath,thumbnail:entry.thumbnailUrl||''});
+        return valid;
       }).catch(error=>{extraTracksCatalogPromise=null;throw error;});
     return extraTracksCatalogPromise;
   }
@@ -511,7 +515,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
 .map((track)=>[track.id, Object.freeze(track)]));
   const LEGACY_TRACK_CATALOG = new Map([["5aafb733c264d51b09beedc7bd7eabb5e65bdded338980fcb14ae5ce36955572",{"id":"5aafb733c264d51b09beedc7bd7eabb5e65bdded338980fcb14ae5ce36955572","name":"Asguardia (legacy)","type":"community","retired":true,"thumbnail":"tracks/community/thumbnails/asguardia.png"}]]);
   function trackInfo(trackId){
-    return TRACK_CATALOG.get(String(trackId || '')) || LEGACY_TRACK_CATALOG.get(String(trackId || '')) || { id:String(trackId || ''), name:'Custom Track', type:'custom' };
+    return TRACK_CATALOG.get(String(trackId || '')) || LEGACY_TRACK_CATALOG.get(String(trackId || '')) || extraTrackInfoById.get(String(trackId||'')) || { id:String(trackId || ''), name:'Custom Track', type:'custom' };
   }
   const LOG_PREFIX='[polytrack-data-0.6.2]';
   const log=(type,msg,data)=>{
@@ -2874,6 +2878,26 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     button.click();event.preventDefault();event.stopPropagation();return true;
   }
 
+  function handleTrackMenuShortcut(event){
+    if(event.defaultPrevented||event.repeat||event.ctrlKey||event.altKey||event.metaKey)return false;
+    const target=event.target;
+    if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||target?.isContentEditable)return false;
+    if(isElementVisible(document.getElementById('overallLeaderboardPanel'))||isElementVisible(document.querySelector('.sq-events-dialog'))||isElementVisible(document.querySelector('.sq-extra-overlay:not([hidden])'))||isElementVisible(document.querySelector('.track-info-ui')))return false;
+    const selection=document.querySelector('.track-selection-ui');
+    if(!isElementVisible(selection))return false;
+    const tabs=[...selection.querySelectorAll(':scope > .image-button-container > button')].slice(0,3);
+    if(tabs.length!==3)return false;
+    let index=-1;
+    const digit=/^Digit([1-3])$/.exec(event.code||'');
+    if(event.shiftKey&&digit)index=Number(digit[1])-1;
+    else if(!event.shiftKey&&(event.key==='ArrowLeft'||event.key==='ArrowRight')){
+      const current=Math.max(0,tabs.findIndex(tab=>tab.classList.contains('selected')));
+      index=(current+(event.key==='ArrowRight'?1:2))%3;
+    }
+    if(index<0||tabs[index].disabled)return false;
+    tabs[index].click();event.preventDefault();event.stopPropagation();return true;
+  }
+
   let overallDialogReturnFocus=null;
   function visibleDialogFocusables(dialog){
     return Array.from(dialog?.querySelectorAll('button:not([disabled]):not([tabindex="-1"]),summary,a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')||[]).filter(isElementVisible);
@@ -3052,7 +3076,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
         categoryControl?.classList.remove('is-explaining');
         categoryControl?.querySelector('[data-category-info]')?.setAttribute('aria-expanded','false');
       }
-      if (event.target === panel) panel.style.display='none';
+      if (event.target === panel) closeOverallPanel(panel);
       if (event.target === panel.querySelector('#overallProfilePopup')) closeRankedDialog(panel.querySelector('#overallProfilePopup'));
       if (event.target === panel.querySelector('#overallHelpPopup')) closeRankedDialog(panel.querySelector('#overallHelpPopup'));
       const publicIdButton=event.target.closest?.('[data-copy-public-id]');
@@ -3184,7 +3208,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
         return;
       }
     });
-    panel.querySelector('#closeOverallLeaderboard').addEventListener('click', ()=>{ panel.style.display='none'; });
+    panel.querySelector('#closeOverallLeaderboard').addEventListener('click', ()=>closeOverallPanel(panel));
     panel.querySelector('#overallFindMeBtn').addEventListener('click',focusCurrentRacer);
     panel.querySelector('#overallHelpBtn').addEventListener('click', ()=>{
       const pop = panel.querySelector('#overallHelpPopup');
@@ -3203,7 +3227,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
       if (event.key === 'Escape') {
         if (isElementVisible(profile)) { closeRankedDialog(profile); event.preventDefault(); return; }
         if (isElementVisible(help)) { closeRankedDialog(help); event.preventDefault(); return; }
-        panel.style.display='none';
+        closeOverallPanel(panel);
         event.preventDefault();
       }
       if((event.key==='Enter'||event.key===' ')&&event.target.matches?.('.overall-track-entry[data-track-id]')){event.preventDefault();focusTrackFromRanked(event.target.dataset.trackId);return;}
@@ -3760,6 +3784,11 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
   let overallLoadState = {status:'idle',message:''};
   let overallLoadGeneration = 0;
   let rankedFreshnessTimer = 0;
+  function closeOverallPanel(panel){
+    if(!panel)return;
+    panel.style.display='none';
+    if(rankedFreshnessTimer){clearInterval(rankedFreshnessTimer);rankedFreshnessTimer=0;}
+  }
   let lastRankedManualRefreshAt = 0;
   function withTimeout(promise, milliseconds, message){
     return Promise.race([
@@ -4427,7 +4456,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     const id=String(trackId||'');
     const info=trackInfo(id);
     const panel=document.getElementById('overallLeaderboardPanel');
-    if(panel)panel.style.display='none';
+    closeOverallPanel(panel);
     const play=[...document.querySelectorAll('.main-buttons-container button')].find((button)=>button.textContent.trim()==='Play'&&isElementVisible(button));
     if(play)play.click();
     let attempts=0;
@@ -4934,6 +4963,12 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
       openRankedDialog(popup);return;
     }
     if(!entry||!popup||!content)return;
+    if(Number(entry.extraCount||0)>0&&!extraTrackInfoById.size&&!extraProfileRefreshPending){
+      extraProfileRefreshPending=true;
+      void loadExtraTracksCatalog().then(()=>{
+        if(extraTrackInfoById.size&&popup.dataset.profileUser===cleanUserId(userId)&&isElementVisible(popup))openRankedProfile(userId);
+      }).catch(()=>{}).finally(()=>{extraProfileRefreshPending=false;});
+    }
     const profileCard=content.closest('.overall-profile-card');
     const profileScroll=isElementVisible(popup)&&popup.dataset.profileUser===cleanUserId(userId)?profileCard.scrollTop:0;
     const self=overallEntriesCache.find((row)=>cleanUserId(row.userId||row.accountId||'')===activeRankedAccountId());
@@ -4972,7 +5007,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
       const weight=hasPlacement?knownFinishWeight(finish):null;
       const parts=hasPlacement?finishWeightParts(finish):null;
       const impact=weight===null?null:weight===0?0:Number(finish.contribution||0)||Math.max(0,(100-rankedPlacementCost(finish.rank,finish.fieldSize))*weight);
-      const typeText=info.type==='official'?'Official':info.type==='community'?'Community':'Custom';
+      const typeText=info.type==='official'?'Official':info.type==='community'?'Community':info.type==='extra'?'Extra':'Custom';
       const weightTitle=hasPlacement?rankedWeightTitle(finish.trackId,finish.fieldSize,false,finish):'Load this track leaderboard to calculate field weight.';
       return `<button class="profile-track-row track-type-${escapeHtml(info.type)} ${hasPlacement?'':'is-null'}" type="button" data-track-id="${escapeHtml(finish.trackId)}" aria-label="Open ${escapeHtml(info.name)}. ${place}. ${weight===null?'Weight not loaded':'Ranked weight available'}."><span class="profile-track-visual">${trackThumbnailMarkup(finish.trackId)}</span><span class="profile-track-name"><b>${escapeHtml(info.name)}</b><small class="track-type-label ${escapeHtml(info.type)}">${typeText}${hasPlacement?` · ${finish.fieldSize} racers`:''}</small><small>${impact===null?'Contribution not loaded':'Ranked contribution available'}</small></span><span class="profile-track-weight" title="${escapeHtml(weightTitle)}"><b>${weight===null?'N/A':'Ranked'}</b><small>${parts?'Weight available':'Weight not loaded'}</small><small>${escapeHtml(finish.cachedAt?'Changed '+age:finish.local?'Local PB':'Saved snapshot')}</small></span><span class="profile-track-result ${kind||''}">${kind?`<img src="${medalIcon(kind)}" alt="${kind} medal">`:''}<b>${place}</b><small>${hasPlacement?`${finish.fieldSize} drivers`:'Open leaderboard to load'}</small></span><time>${finish.timeMs?`${formatRaceTime(finish.timeMs)}${pbTimestamp(finish)?`<small>PB ${escapeHtml(formatLocalPbDate(finish))}</small>`:''}`:'Time not loaded'}</time></button>`;
     }).join(''):'<div class="profile-track-empty"><strong>Track times are not loaded on this device</strong><span>The complete snapshot statistics above are still available. Open track leaderboards to add exact times and full result rows without bulk-reading every track.</span></div>';
@@ -4987,7 +5022,9 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     const accountSince=accountCreatedAt?new Date(accountCreatedAt).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}):'Unknown';
     const scoreDelta=Number(entry.scoreDelta||0)||0;
     const scoreChange=scoreDelta<0?`Improved ${formatRp(Math.abs(scoreDelta))} RP`:scoreDelta>0?`Lost ${formatRp(scoreDelta)} RP`:'No saved RP change';
-    const participation=`${Number(entry.officialCount||0)} official${Number(entry.communityCount||0)?` · ${Number(entry.communityCount)} community`:''}${Number(entry.customCount||0)?` · ${Number(entry.customCount)} custom`:''}`;
+    const extraCount=Math.max(0,Number(entry.extraCount||0));
+    const otherCustomCount=Math.max(0,Number(entry.customCount||0)-extraCount);
+    const participation=`${Number(entry.officialCount||0)} official${Number(entry.communityCount||0)?` · ${Number(entry.communityCount)} community`:''}${extraCount?` · ${extraCount} Extra`:''}${otherCustomCount?` · ${otherCustomCount} other custom`:''}`;
     const uid=escapeHtml(entry.userId);
     const achievements=profileAchievementMarkup(medals);
     const currentRankSince=Math.max(0,Number(entry.rankSince||entry.movementAt||0)||0);
@@ -5151,6 +5188,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     const alreadyVisible=isElementVisible(panel);
     if(overallCategory==='events'){
       panel.style.display='flex';
+      if(!rankedFreshnessTimer)rankedFreshnessTimer=setInterval(()=>{updateRankedFreshness();updateRankDurationLabels(panel);},1000);
       if(!overallEntriesCache.length)overallEntriesCache=readOverallSnapshotCache()?.entries||[];
       syncCategorySelect(panel);
       const scope=panel.querySelector('#overallTrackScope');if(scope)scope.hidden=true;
@@ -5167,7 +5205,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     // Cosmetic directory checks have their own cadence; a rankings refresh is
     // not a reason to read the same public profiles again.
     syncCosmeticDirectory(false);
-    if(!rankedFreshnessTimer) rankedFreshnessTimer=setInterval(()=>{if(panel.style.display!=='none'){updateRankedFreshness();updateRankDurationLabels(panel);}},1000);
+    if(!rankedFreshnessTimer)rankedFreshnessTimer=setInterval(()=>{updateRankedFreshness();updateRankDurationLabels(panel);},1000);
     const dailyGrid=panel.querySelector('#overallDailyGrid');
     if(dailyGrid&&!alreadyVisible) dailyGrid.outerHTML=dailySpotlightMarkup();
     const trackScope=panel.querySelector('#overallTrackScope');
@@ -6987,12 +7025,13 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
         const panel = document.getElementById('overallLeaderboardPanel');
         const help = document.getElementById('overallHelpPopup');
         if (help && help.style.display !== 'none') { help.style.display='none'; event.preventDefault(); return; }
-        if (panel && panel.style.display !== 'none') { panel.style.display='none'; event.preventDefault(); return; }
+        if (panel && panel.style.display !== 'none') { closeOverallPanel(panel); event.preventDefault(); return; }
       }
       if(handleArchivePageShortcut(event))return;
       if(handleOverallLeaderboardShortcut(event))return;
       if(handleTrackLeaderboardShortcut(event))return;
       if(handleOfficialTrackShortcut(event))return;
+      if(handleTrackMenuShortcut(event))return;
       handleLobbyShortcut(event);
     });
     window.addEventListener('keyup',handleTrackLeaderboardDigitRelease);
