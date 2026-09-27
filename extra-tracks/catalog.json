@@ -1,5 +1,55 @@
 [
   {
+    "id": "canyon-of-death",
+    "trackId": "4dd71b4db08edcba19e546974d3906af3e7c1afa6ad208e69e4aaf9af40c8555",
+    "name": "Canyon of Death",
+    "author": "👑Lifeless_Sweat👑",
+    "source": "Player submission",
+    "sourceUrl": "https://discord.com/channels/1115776502592708720/1553804295873241258",
+    "tags": [
+      "technical",
+      "fakespeed"
+    ],
+    "tier": "Community",
+    "featuredSubmission": true,
+    "submittedAt": "2026-09-27T20:52:11.897Z",
+    "trackPath": "extra-tracks/track-data/submitted/canyon-of-death.track",
+    "description": "A technical fakespeed track shared with the PolyTrack community.",
+    "difficulty": 4,
+    "codeName": "Canyon of Death",
+    "codeAuthor": "👑Lifeless_Sweat👑",
+    "codeModifiedAt": "2026-09-18T03:24:40.000Z",
+    "sizeBytes": 16734,
+    "category": "Technical",
+    "sourceCopies": null,
+    "thumbnailUrl": "extra-tracks/thumbnails/canyon-of-death.png"
+  },
+  {
+    "id": "ithan",
+    "trackId": "898be9f1a06f8db3b03d0112288fbb16ec077bdc412d678bcfdb4fcf555ca44f",
+    "name": "Ithan",
+    "author": "Selver",
+    "source": "Player submission",
+    "sourceUrl": "",
+    "tags": [
+      "tutorial",
+      "stunt"
+    ],
+    "tier": "Community",
+    "featuredSubmission": true,
+    "submittedAt": "2026-09-26T17:32:17.149Z",
+    "trackPath": "extra-tracks/track-data/submitted/ithan.track",
+    "description": "Trial map",
+    "difficulty": 7,
+    "codeName": "Ithan",
+    "codeAuthor": "Selver",
+    "codeModifiedAt": null,
+    "sizeBytes": 12600,
+    "category": "Stunt",
+    "sourceCopies": null,
+    "thumbnailUrl": "extra-tracks/thumbnails/ithan.png"
+  },
+  {
     "id": "shrouded-oasis",
     "trackId": "a925830af77f1eae9c5c48a08a6d903b866357d11c2d38cd7b18e1957d1668bd",
     "name": "Shrouded Oasis",

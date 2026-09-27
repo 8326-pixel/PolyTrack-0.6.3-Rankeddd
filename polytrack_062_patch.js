@@ -246,13 +246,30 @@
     const response=await fetch(rankedBrokerUrl()+'/v1/extra-tracks/reports',{method:'POST',headers:{Authorization:'Bearer '+await user.getIdToken(),'Content-Type':'application/json'},body:JSON.stringify({trackId:entry.trackId,trackName:entry.name,accountId,reason}),signal:AbortSignal.timeout(10000)});
     if(!response.ok){const failure=await response.json().catch(()=>({}));const reasons={already_reported:'You already reported this track.',invalid_report:'This track or reason is not valid.',profile_not_owned:'Your racer profile is not ready. Reopen the menu and try again.',report_capacity:'This track has already received enough reports for review.',rate_limited:'Please wait before reporting another track.'};const error=Error(reasons[failure.error]||`Report could not be sent (${response.status}).`);error.publicMessage=true;throw error;}
   }
+  const extraFeedbackKey='sq-extra-feedback-v1';
+  let extraFeedbackCache=null;
+  window.addEventListener('storage',event=>{if(event.key===extraFeedbackKey){extraFeedbackCache=null;extraTracksUi?.refresh();}});
+  function readExtraFeedback(){
+    if(extraFeedbackCache)return extraFeedbackCache;
+    try{const value=JSON.parse(localStorage.getItem(extraFeedbackKey)||'{}');extraFeedbackCache=value&&typeof value==='object'&&!Array.isArray(value)?value:{};}
+    catch{extraFeedbackCache={};}
+    return extraFeedbackCache;
+  }
+  function extraFeedback(entry){return readExtraFeedback()[entry.trackId]||{}}
+  function saveExtraFeedback(entry,change){const all=readExtraFeedback(),next={...all,[entry.trackId]:{...(all[entry.trackId]||{}),...change}};localStorage.setItem(extraFeedbackKey,JSON.stringify(next));extraFeedbackCache=next;}
+  function exportExtraFeedback(){
+    const data=readExtraFeedback();const safe={};
+    for(const [trackId,choice] of Object.entries(data))if(/^[a-f0-9]{64}$/.test(trackId)&&choice&&typeof choice==='object')safe[trackId]={favorite:choice.favorite===true,vote:choice.vote===1||choice.vote===-1?choice.vote:0,rating:Number.isInteger(choice.rating)&&choice.rating>=1&&choice.rating<=10?choice.rating:0};
+    const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),tracks:safe},null,2)],{type:'application/json'});
+    const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='polytrack-extra-picks.json';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
+  }
   async function openExtraTracks(){
     extraTrackRaceRows=readLocalRaceRows();extraTrackKnownIds=extraTrackIds();
     if(extraTracksUi){extraTracksUi.open();return;}
     if(!extraTracksUiPromise)extraTracksUiPromise=Promise.all([
       loadExtraTracksCatalog(),import(new URL('catalog-ui.mjs',extraTracksBaseUrl).href)
     ]).then(([entries,module])=>{
-      extraTracksUi=module.mountExtraTracks({document,root:document.body,entries,onPlay:importExtraTrack,onSave:importExtraTrack,getPersonalBest:extraTrackPersonalBest,isLoaded:entry=>extraTrackKnownIds[entry.id]===entry.trackId,onSubmit:submitExtraTrack,onReport:reportExtraTrack});
+      extraTracksUi=module.mountExtraTracks({document,root:document.body,entries,onPlay:importExtraTrack,onSave:importExtraTrack,getPersonalBest:extraTrackPersonalBest,isLoaded:entry=>extraTrackKnownIds[entry.id]===entry.trackId,getLocalRating:entry=>extraFeedback(entry).rating,getFeedback:extraFeedback,onFeedback:saveExtraFeedback,onExportFeedback:exportExtraFeedback,onSubmit:submitExtraTrack,onReport:reportExtraTrack});
       if(!document.querySelector('link[data-extra-tracks-css]')){const css=document.createElement('link');css.rel='stylesheet';css.href=new URL('catalog.css',extraTracksBaseUrl).href;css.dataset.extraTracksCss='';document.head.append(css);}
       return extraTracksUi;
     }).finally(()=>{extraTracksUiPromise=null;});

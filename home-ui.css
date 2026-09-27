@@ -101,6 +101,17 @@
   object-fit: cover;
   image-rendering: auto;
 }
+.track-selection-ui .tracks-container.no-group-containers > .wrapper > .track > .button {
+  box-sizing: border-box;
+  width: 216px;
+  max-width: 216px;
+  overflow: hidden;
+}
+.track-selection-ui .tracks-container.no-group-containers > .wrapper > .track .track-title,
+.track-selection-ui .tracks-container.no-group-containers > .wrapper > .track .record {
+  box-sizing: border-box;
+  width: 100%;
+}
 .track-selection-ui .sq-extra-tracks-entry .track-title {
   box-shadow: inset 0 4px #f1c95c;
   color: #fff4c5;

@@ -299,10 +299,14 @@ export function installEvents(bridge){
   async function renderCar(style,button){
     // Thumbnail generation is CPU-heavy in the native bundle. Keep it off the
     // replay-selection input frame and skip work after the event view closes.
-    await new Promise(resolve=>{
-      if(typeof requestIdleCallback==='function')requestIdleCallback(resolve,{timeout:750});
-      else setTimeout(resolve,48);
+    const idle=await new Promise(resolve=>{
+      if(typeof requestIdleCallback==='function'){
+        let handle;
+        const limit=setTimeout(()=>{if(typeof cancelIdleCallback==='function')cancelIdleCallback(handle);resolve(false);},3000);
+        handle=requestIdleCallback(()=>{clearTimeout(limit);resolve(true);});
+      }else setTimeout(()=>resolve(true),48);
     });
+    if(!idle){carImages.delete(style);return '';}
     if(!button.isConnected||!nativeView?.board?.contains(button)){carImages.delete(style);return '';}
     const bounded=async invoke=>{let timer;try{return await Promise.race([Promise.resolve().then(invoke),new Promise(resolve=>{timer=setTimeout(()=>resolve(''),1500);})]);}catch{return '';}finally{clearTimeout(timer);}};
     if(typeof window.BT==='function'){const src=imageSource(await bounded(()=>window.BT(style,'')));if(safeImage(src))return src;}
@@ -503,6 +507,14 @@ export function installEvents(bridge){
       };
     }
     const view=nativeView;
+    const quickBoard=cache.get(period.id);
+    if(quickBoard&&view.signature){
+      const quickLocal=localBest(period),quickReceipt=ownReceipts.get(period.id+'_'+accountId);
+      const selection=[...selectedGhosts.values()].filter(row=>row.periodId===period.id&&row.accountId===accountId).map(row=>[row.targetRunId,row.targetTimeMs,row.targetPending]);
+      const quickSignature=JSON.stringify([quickBoard.updatedAt,quickBoard.saved,quickLocal?.attemptId,quickLocal?.timeMs,quickReceipt?.attemptId,quickReceipt?.status,quickReceipt?.timeMs,view.page,Math.floor(now()/120000),selection]);
+      if(quickSignature===view.quickSignature)return;
+      view.quickSignature=quickSignature;
+    }
     const activeGhosts=[...selectedGhosts.values()].filter(row=>row.periodId===period.id&&row.accountId===accountId);
     if(view.watch)view.watch.disabled=typeof bridge.watchEvent!=='function'||!(getOwnReplay(period.id)||activeGhosts.length);
     const opponentsText=activeGhosts.length?`${activeGhosts.length} event ghost${activeGhosts.length===1?'':'s'} selected`:bridge.supportsEventGhost?.()&&getOwnReplay(period.id)?'Play uses your event PB ghost. Select published racers to add their replays.':'Select published racers to load event ghosts. Normal PB ghosts are not used.';

@@ -73,6 +73,32 @@ test('mount is hidden until open, paginates exact counts and restores focus', ()
   assert.equal(root.children.length, 0);
 });
 
+test('local picks toggle, rating changes and export callback stay device-scoped', async () => {
+  const saved = new Map(), exported = [];
+  const item = entry(1, { trackId: 'a'.repeat(64) });
+  const { root, api } = fixture([item], {
+    getFeedback: track => saved.get(track.trackId) || {},
+    onFeedback: (track, change) => saved.set(track.trackId, { ...saved.get(track.trackId), ...change }),
+    getLocalRating: track => saved.get(track.trackId)?.rating,
+    onExportFeedback: () => exported.push(true)
+  });
+  api.open();
+  await click(cls(root, 'sq-extra-pick')[0]);
+  assert.equal(saved.get(item.trackId).favorite, true);
+  await click(cls(root, 'sq-extra-pick')[0]);
+  assert.equal(saved.get(item.trackId).favorite, false);
+  await click(cls(root, 'sq-extra-pick')[1]);
+  assert.equal(saved.get(item.trackId).vote, 1);
+  await click(cls(root, 'sq-extra-pick')[2]);
+  assert.equal(saved.get(item.trackId).vote, -1);
+  const rating = tag(cls(root, 'sq-extra-rating')[0], 'select')[0];
+  rating.value = '8'; await rating.dispatch('change');
+  assert.equal(saved.get(item.trackId).rating, 8);
+  await click(cls(root, 'sq-extra-export')[0]);
+  assert.equal(exported.length, 1);
+  api.destroy();
+});
+
 test('source counts, suggested tags and the submission dialog stay together', async () => {
   const { root, api } = fixture([entry(1), entry(2), entry(3)]);
   api.open();
@@ -337,19 +363,20 @@ test('multiple styles combine, and empty results offer a reset', async () => {
   api.destroy();
 });
 
-test('code date sorting places undated tracks last in both directions', async () => {
+test('track date sorting uses submission dates and puts undated tracks last', async () => {
   const { root, api } = fixture([
     entry(1, { codeModifiedAt: '2026-09-20T00:00:00Z' }),
-    entry(2, { codeModifiedAt: null }),
-    entry(3, { codeModifiedAt: '2026-09-23T00:00:00Z' })
+    entry(2, { codeModifiedAt: null, submittedAt: '2026-09-25T00:00:00Z', featuredSubmission: true }),
+    entry(3, { codeModifiedAt: '2026-09-23T00:00:00Z' }),
+    entry(4, { codeModifiedAt: null })
   ]);
   api.open();
   const sort = tag(cls(root, 'sq-extra-field')[5], 'select')[0];
   const names = () => cls(root, 'sq-extra-card').map(card => tag(card, 'h3')[0].textContent);
   sort.value = 'date-newest'; await sort.dispatch('change');
-  assert.deepEqual(names(), ['Track 03', 'Track 01', 'Track 02']);
+  assert.deepEqual(names(), ['Track 02', 'Track 03', 'Track 01', 'Track 04']);
   sort.value = 'date-oldest'; await sort.dispatch('change');
-  assert.deepEqual(names(), ['Track 01', 'Track 03', 'Track 02']);
+  assert.deepEqual(names(), ['Track 01', 'Track 03', 'Track 02', 'Track 04']);
   api.destroy();
 });
 

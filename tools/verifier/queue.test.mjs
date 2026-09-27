@@ -414,12 +414,12 @@ test('Extra-only work wakes preflight while legacy core remains independently vi
   assert.equal(verificationCollectionForTrack('legacy-core-id'),VERIFICATION_COLLECTION);
 });
 
-test('all 200 pinned catalog IDs use the Extra lane',()=>{
+test('all 202 pinned catalog IDs use the Extra lane',()=>{
   const ids=[...EXTRA_TRACK_IDS].sort();
-  assert.equal(ids.length,200);
+  assert.equal(ids.length,202);
   assert.ok(ids.every(id=>/^[a-f0-9]{64}$/.test(id)));
   assert.equal(createHash('sha256').update(ids.join(',')).digest('hex'),
-    'add9204438ea6bb8782c9eeef91cb256ca4d9a93f32f7d5ef522a141f98d674c');
+    'e2dbff433057288a39ed7c11c272cf9e18ef2b5c387f8b323ab4c0fdcf0b8c42');
   assert.ok(ids.every(id=>verificationCollectionForTrack(id)===EXTRA_VERIFICATION_COLLECTION));
 });
 
@@ -518,6 +518,34 @@ test('preflight errors fail closed rather than producing a false empty-queue suc
     if(body.structuredQuery.from[0].collectionId===EXTRA_VERIFICATION_COLLECTION)throw Error('Extra queue read failed');
     return [{document:{}}];
   }},{env:{},log:()=>{throw Error('Must not report partial work');}}),/Extra queue read failed/);
+});
+
+test('transient Firestore 429 retries the whole preflight without claiming an empty queue',async()=>{
+  let calls=0;
+  const result=await runVerifier({check:true,env:{FIREBASE_VERIFIER_SERVICE_ACCOUNT:'synthetic'},log:()=>{},sleep:async()=>{},
+    connectDatabase:async()=>({call:async()=>{if(++calls===1)throw Object.assign(Error('throttled'),{status:429});return [];}}),
+    eventCheck:async()=>({hasWork:false})});
+  assert.equal(result.hasWork,false);
+  assert.equal(calls,3);
+});
+
+test('sustained Firestore 429 defers without reporting no work or running verification',async()=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'polytrack-preflight-'));
+  const output=path.join(directory,'output'),summary=path.join(directory,'summary');
+  let calls=0;
+  try{
+    const result=await runVerifier({check:true,env:{FIREBASE_VERIFIER_SERVICE_ACCOUNT:'synthetic',GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:summary},
+      log:()=>{},sleep:async()=>{},connectDatabase:async()=>({call:async()=>{calls++;throw Object.assign(Error('throttled'),{status:429});}}),
+      eventCheck:async()=>{throw Error('Events must not run after a failed queue read');}});
+    assert.deepEqual(result,{hasWork:null,deferred:true,reason:'firestore_429'});
+    assert.equal(calls,3);
+    assert.match(fs.readFileSync(output,'utf8'),/has_work=deferred/);
+    assert.doesNotMatch(fs.readFileSync(output,'utf8'),/has_work=false/);
+    assert.match(fs.readFileSync(summary,'utf8'),/Queue state is unknown/);
+  }finally{
+    for(const file of [output,summary])if(fs.existsSync(file))fs.unlinkSync(file);
+    fs.rmdirSync(directory);
+  }
 });
 
 test('processing mode still validates engine before authentication or queue access',async()=>{

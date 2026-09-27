@@ -71,14 +71,27 @@ export async function checkForWork(db, {env = process.env, now = Date.now(), log
 export async function runVerifier({check = false, drain = false, borrowUnusedEvents = false, clock = () => performance.now(), env = process.env, connectDatabase = connect,
   validateEngine = validateEnginePin, log = console.log, eventCheck = checkEvents,
   eventRun = runEvents, prioritizeNormal = prioritizeQueueDocuments, selectNormal = selectJobs,
-  verifyNormal = simulate, publishNormal = publishResults} = {}) {
+  verifyNormal = simulate, publishNormal = publishResults, sleep = ms => new Promise(resolve => setTimeout(resolve, ms))} = {}) {
   // Preflight never loads or hashes physics assets. Actual processing still pins the engine first.
   if (!check) await validateEngine();
   const raw = env.FIREBASE_VERIFIER_SERVICE_ACCOUNT;
   if (!raw) throw Error('Set the private FIREBASE_VERIFIER_SERVICE_ACCOUNT Actions secret.');
   const db = await connectDatabase(raw);
   delete env.FIREBASE_VERIFIER_SERVICE_ACCOUNT;
-  if (check) return checkForWork(db, {env, log, eventCheck});
+  if (check) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { return await checkForWork(db, {env, log, eventCheck}); }
+      catch (error) {
+        if (error?.status !== 429) throw error;
+        if (attempt < 2) { await sleep([2000, 5000][attempt]); continue; }
+        const message = 'Firestore throttled verification preflight (HTTP 429). Queue state is unknown; no runs were processed or removed. The next scheduled run will retry.';
+        if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, 'has_work=deferred\npreflight_status=throttled\n');
+        if (env.GITHUB_STEP_SUMMARY) fs.appendFileSync(env.GITHUB_STEP_SUMMARY, '## Verification preflight deferred\n' + message + '\n');
+        log(message);
+        return {hasWork: null, deferred: true, reason: 'firestore_429'};
+      }
+    }
+  }
   const roundOptions={env,log,eventRun,prioritizeNormal,selectNormal,verifyNormal,publishNormal,borrowUnusedEvents};
   if (!drain) return runRound(db,roundOptions);
   const bounded=budgetDatabase(db);

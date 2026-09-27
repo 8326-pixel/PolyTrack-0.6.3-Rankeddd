@@ -43,7 +43,7 @@ function timeLabel(ms) {
   return `${minutes}:${seconds}.${String(total % 1000).padStart(3, '0')}`;
 }
 
-export function mountExtraTracks({ document, root, entries = [], onPlay, onSave, getPersonalBest, isLoaded, getLocalRating, onSubmit, onReport } = {}) {
+export function mountExtraTracks({ document, root, entries = [], onPlay, onSave, getPersonalBest, isLoaded, getLocalRating, getFeedback, onFeedback, onExportFeedback, onSubmit, onReport } = {}) {
   if (!document?.createElement || !root?.append) throw new TypeError('document and root are required');
   let destroyed = false;
   let opened = false;
@@ -51,7 +51,7 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
   let page = 1;
   let pendingAction = false;
   let cachedRecords = null;
-  const state = { search: '', source: '', tags: [], difficulty: '', curated: false, completion: 'all', sort: 'recommended' };
+  const state = { search: '', source: '', tags: [], difficulty: '', curated: false, favorites: false, completion: 'all', sort: 'recommended' };
   const make = (tag, className, content) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -80,6 +80,7 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
   title.id = titleId;
   titleGroup.append(eyebrow, title);
   const closeButton = button('Close', 'sq-extra-close', close);
+  if (typeof onExportFeedback === 'function') header.append(button('Export my picks', 'sq-extra-export', onExportFeedback));
   header.append(titleGroup, closeButton);
   dialog.append(header);
   const invitation = make('p', 'sq-extra-invite', 'Made a track? Direct submissions get priority review for this collection. Inclusion and featured placement are not guaranteed.');
@@ -123,13 +124,16 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
   if (Array.isArray(entries) && entries.some(entry => Number.isSafeInteger(entry?.sizeBytes) && entry.sizeBytes >= 0)) sortChoices.push(['size-largest', 'Largest track'], ['size-smallest', 'Smallest track']);
   if (Array.isArray(entries) && entries.some(entry => Number.isSafeInteger(entry?.sourceCopies) && entry.sourceCopies >= 0 || Number.isSafeInteger(entry?.sourcePlays) && entry.sourcePlays >= 0)) sortChoices.push(['plays', 'Most plays']);
   if (typeof getLocalRating === 'function') sortChoices.push(['my-rating', 'My ratings']);
-  if (Array.isArray(entries) && entries.some(entry => Number.isFinite(Date.parse(entry?.codeModifiedAt)))) sortChoices.push(['date-newest', 'Newest code update'], ['date-oldest', 'Oldest code update']);
+  if (Array.isArray(entries) && entries.some(entry => Number.isFinite(Date.parse(entry?.submittedAt || entry?.codeModifiedAt)))) sortChoices.push(['date-newest', 'Newest Track'], ['date-oldest', 'Oldest Track']);
   const sortField = selectField('Sort', sortChoices);
   const curatedLabel = make('label', 'sq-extra-check');
   const curated = make('input');
   curated.type = 'checkbox';
   curatedLabel.append(curated, make('span', '', 'Curated only'));
-  controls.append(searchLabel, sourceField.label, tagField.label, difficultyField.label, completionField.label, sortField.label, curatedLabel);
+  const favoritesLabel = make('label', 'sq-extra-check');
+  const favorites = make('input'); favorites.type = 'checkbox';
+  favoritesLabel.append(favorites, make('span', '', 'My favorites'));
+  controls.append(searchLabel, sourceField.label, tagField.label, difficultyField.label, completionField.label, sortField.label, curatedLabel, favoritesLabel);
   dialog.append(controls);
 
   const summary = make('div', 'sq-extra-summary');
@@ -317,6 +321,7 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
   function card(entry, best, loaded) {
     const article = make('article', 'sq-extra-card');
     if (text(entry.tier).toLowerCase() === 'curated') article.className += ' sq-extra-card-featured';
+    if (entry.featuredSubmission === true) article.className += ' sq-extra-card-submitted';
     if (entry.ranked === false) article.className += ' sq-extra-card-unranked';
     const visual = make('div', 'sq-extra-visual');
     const placeholder = make('span', 'sq-extra-placeholder', text(entry.category, 'Custom track').toUpperCase());
@@ -337,6 +342,7 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
     const body = make('div', 'sq-extra-card-body');
     const tier = text(entry.tier);
     if (tier.toLowerCase() === 'curated') body.append(make('span', 'sq-extra-tier', 'Featured'));
+    if (entry.featuredSubmission === true) body.append(make('span', 'sq-extra-tier sq-extra-tier-submitted', 'New from players'));
     if (entry.ranked === false) body.append(make('span', 'sq-extra-tier sq-extra-tier-unranked', 'Unranked challenge · no RP or verification'));
     body.append(make('h3', '', text(entry.name, 'Untitled track')));
     const creditedAuthor = text(entry.author);
@@ -347,6 +353,9 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
     }
     if (entry.codeModifiedAt && Number.isFinite(Date.parse(entry.codeModifiedAt))) {
       body.append(make('p', 'sq-extra-code-date', `Modified ${new Date(entry.codeModifiedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}`));
+    }
+    if (entry.submittedAt && Number.isFinite(Date.parse(entry.submittedAt))) {
+      body.append(make('p', 'sq-extra-code-date', `Submitted ${new Date(entry.submittedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}`));
     }
     const tags = Array.isArray(entry.tags) ? entry.tags.filter(tag => text(tag) && !/^difficulty-/.test(tag) && !['easy', 'medium', 'hard', 'expert', 'kacky', 'throwback', 'curated'].includes(tag)) : [];
     if (tags.length) {
@@ -365,6 +374,26 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
     else if (plays !== null && plays >= 0) facts.append(make('span', 'sq-extra-plays', `${plays.toLocaleString()} source plays`));
     if (Number.isSafeInteger(entry.sizeBytes) && entry.sizeBytes >= 0) facts.append(make('span', 'sq-extra-size', `${(entry.sizeBytes / 1000).toFixed(1)} KB code`));
     body.append(facts);
+    if (typeof onFeedback === 'function') {
+      let feedback = {};
+      try { feedback = getFeedback?.(entry) || {}; } catch { /* Device storage is optional. */ }
+      const picks = make('div', 'sq-extra-picks');
+      const toggle = (field, value) => {
+        try { onFeedback(entry, { [field]: feedback[field] === value ? field === 'favorite' ? false : 0 : value }); cachedRecords = null; render(); }
+        catch { showStatus('Could not save your picks on this device.', true); }
+      };
+      const favorite = button(feedback.favorite ? 'Saved' : 'Favorite', 'sq-extra-pick' + (feedback.favorite ? ' selected' : ''), () => toggle('favorite', true));
+      favorite.setAttribute('aria-pressed', String(Boolean(feedback.favorite)));
+      const up = button('Helpful +', 'sq-extra-pick' + (feedback.vote === 1 ? ' selected' : ''), () => toggle('vote', 1));
+      const down = button('Not for me', 'sq-extra-pick' + (feedback.vote === -1 ? ' selected' : ''), () => toggle('vote', -1));
+      up.setAttribute('aria-pressed', String(feedback.vote === 1)); down.setAttribute('aria-pressed', String(feedback.vote === -1));
+      const ratingLabel = make('label', 'sq-extra-rating', 'My rating');
+      const rating = make('select');
+      for (let n = 0; n <= 10; n++) { const option = make('option', '', n ? `${n}/10` : 'Not rated'); option.value = String(n); rating.append(option); }
+      rating.value = String(Number(feedback.rating) || 0);
+      rating.addEventListener('change', () => { try { onFeedback(entry, { rating: Number(rating.value) }); cachedRecords = null; render(); } catch { showStatus('Could not save your rating on this device.', true); } });
+      ratingLabel.append(rating); picks.append(favorite, up, down, ratingLabel); body.append(picks);
+    }
     const actions = make('div', 'sq-extra-actions');
     actions.append(button('Import and play', 'sq-extra-play', () => runAction('play', onPlay, entry)));
     const more = button('...', 'sq-extra-more', () => { moreMenu.hidden = !moreMenu.hidden; more.setAttribute('aria-expanded', String(!moreMenu.hidden)); });
@@ -425,11 +454,12 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
     }
     const query = state.search.toLocaleLowerCase();
     if (!cachedRecords) cachedRecords = all.map(entry => {
-      let best = null, loaded = false, rating = null;
+      let best = null, loaded = false, rating = null, favorite = false;
       try { best = personalBest(typeof getPersonalBest === 'function' ? getPersonalBest(entry) : null); } catch { /* A missing PB must not break the catalog. */ }
       try { loaded = typeof isLoaded === 'function' && Boolean(isLoaded(entry)); } catch { /* Local imports are optional. */ }
       try { rating = typeof getLocalRating === 'function' ? Number(getLocalRating(entry)) : null; } catch { /* Local ratings are optional. */ }
-      return { entry, best, loaded, rating: Number.isFinite(rating) && rating >= 1 && rating <= 10 ? rating : null };
+      try { favorite = getFeedback?.(entry)?.favorite === true; } catch { /* Device storage is optional. */ }
+      return { entry, best, loaded, favorite, rating: Number.isFinite(rating) && rating >= 1 && rating <= 10 ? rating : null };
     });
     const progressCounts = new Map([['all', cachedRecords.length], ['completed', 0], ['uncompleted', 0], ['loaded', 0]]);
     for (const record of cachedRecords) {
@@ -443,12 +473,12 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
     filterCount(completionField, progressCounts.get(state.completion) || 0);
     const selectedProgress = [...completionField.select.children].find(option => option.value === state.completion);
     if (selectedProgress) selectedProgress.textContent = state.completion === 'all' ? 'All tracks' : state.completion === 'completed' ? 'Completed' : state.completion === 'loaded' ? 'Imported, not completed' : 'Not completed';
-    const records = cachedRecords.filter(({ entry, best, loaded }) => {
+    const records = cachedRecords.filter(({ entry, best, loaded, favorite }) => {
       const entryTags = Array.isArray(entry.tags) ? entry.tags.map(tag => text(tag)) : [];
       const searchable = [entry.name, entry.author, entry.codeName, entry.codeAuthor, entry.source, entry.description, ...entryTags].map(value => text(value).toLocaleLowerCase()).join(' ');
       // A curator can mark a track by tier or by the curated tag.
       const isCurated = text(entry.tier).toLocaleLowerCase() === 'curated' || entryTags.some(tag => tag.toLocaleLowerCase() === 'curated');
-      return (!query || searchable.includes(query)) && (!state.source || entry.source === state.source) &&
+      return (!query || searchable.includes(query)) && (!state.source || entry.source === state.source) && (!state.favorites || favorite) &&
         state.tags.every(tag => entryTags.includes(tag)) && (!state.curated || isCurated) &&
         (!state.difficulty || difficulty(entry) === Number(state.difficulty)) &&
         (state.completion === 'all' || state.completion === 'completed' && best !== null ||
@@ -466,12 +496,12 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
         return (state.sort === 'size-largest' ? bSize - aSize : aSize - bSize) || compare(a.entry.name, b.entry.name);
       }
       if (state.sort === 'date-newest' || state.sort === 'date-oldest') {
-        const aDate = Date.parse(a.entry.codeModifiedAt), bDate = Date.parse(b.entry.codeModifiedAt);
+        const aDate = Date.parse(a.entry.submittedAt || a.entry.codeModifiedAt), bDate = Date.parse(b.entry.submittedAt || b.entry.codeModifiedAt);
         if (!Number.isFinite(aDate) || !Number.isFinite(bDate)) return Number.isFinite(aDate) ? -1 : Number.isFinite(bDate) ? 1 : compare(a.entry.name, b.entry.name);
         return (state.sort === 'date-newest' ? bDate - aDate : aDate - bDate) || compare(a.entry.name, b.entry.name);
       }
       if (state.sort === 'author') return compare(displayAuthor(a.entry), displayAuthor(b.entry)) || compare(a.entry.name, b.entry.name);
-      if (state.sort === 'recommended') return Number(text(b.entry.tier).toLowerCase() === 'curated') - Number(text(a.entry.tier).toLowerCase() === 'curated') || compare(a.entry.name, b.entry.name);
+      if (state.sort === 'recommended') return Number(b.entry.featuredSubmission === true) - Number(a.entry.featuredSubmission === true) || Number(text(b.entry.tier).toLowerCase() === 'curated') - Number(text(a.entry.tier).toLowerCase() === 'curated') || compare(a.entry.name, b.entry.name);
       return compare(a.entry.name, b.entry.name);
     });
     const pages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
@@ -494,9 +524,9 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
   }
 
   function clearFilters() {
-    Object.assign(state, { search: '', source: '', tags: [], difficulty: '', curated: false, completion: 'all', sort: 'recommended' });
+    Object.assign(state, { search: '', source: '', tags: [], difficulty: '', curated: false, favorites: false, completion: 'all', sort: 'recommended' });
     search.value = ''; sourceField.select.value = ''; difficultyField.select.value = '';
-    completionField.select.value = 'all'; sortField.select.value = 'recommended'; curated.checked = false;
+    completionField.select.value = 'all'; sortField.select.value = 'recommended'; curated.checked = false; favorites.checked = false;
     page = 1; render();
   }
 
@@ -559,6 +589,7 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
   completionField.select.addEventListener('change', () => { state.completion = completionField.select.value; page = 1; render(); });
   sortField.select.addEventListener('change', () => { state.sort = sortField.select.value; page = 1; render(); });
   curated.addEventListener('change', () => { state.curated = curated.checked; page = 1; render(); });
+  favorites.addEventListener('change', () => { state.favorites = favorites.checked; page = 1; render(); });
   document.addEventListener('keydown', onKeydown, true);
   render();
   return {
