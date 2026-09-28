@@ -439,6 +439,38 @@ test('serves a complete public snapshot from the Worker API', async () => {
   assert.match(response.headers.get('Cache-Control'), /^public/);
 });
 
+test('irrelevant query parameters cannot force repeat public snapshot reads', async () => {
+  const prior = globalThis.caches, stored = new Map(), pending = [];
+  let reads = 0;
+  globalThis.caches = { default: {
+    match: async key => stored.get(key.url)?.clone() || null,
+    put: async (key, response) => { stored.set(key.url, response.clone()); }
+  } };
+  try {
+    const env = { ALLOWED_ORIGINS: 'https://staticquasar931.github.io',
+      __TEST_FIRESTORE: async path => { if (!path.includes('leaderboards_overall')) return null; reads++; return { fields: { revision: { integerValue: '7' }, entries: { arrayValue: { values: [] } } } }; } };
+    const context = { waitUntil: promise => pending.push(promise) };
+    for (const suffix of ['?unused=first', '?unused=second']) {
+      const response = await handleRequest(new Request('https://ranked.example/v1/snapshot/overall' + suffix,
+        { headers: { Origin: 'https://staticquasar931.github.io' } }), env, context);
+      assert.equal(response.status, 200);
+      await Promise.all(pending.splice(0));
+    }
+    assert.equal(reads, 1);
+    assert.equal(stored.size, 1);
+  } finally { if (prior === undefined) delete globalThis.caches; else globalThis.caches = prior; }
+});
+
+test('oversized request streams stop before the full body is buffered', async () => {
+  let pulls = 0;
+  const stream = new ReadableStream({ pull(controller) { pulls++; controller.enqueue(new Uint8Array(1024)); } });
+  const response = await handleRequest(new Request('https://ranked.example/v1/pb/notify', {
+    method: 'POST', duplex: 'half', headers: { Origin: 'https://staticquasar931.github.io', 'Content-Type': 'application/json' }, body: stream
+  }), { ALLOWED_ORIGINS: 'https://staticquasar931.github.io', __TEST_UID: 'signed-in-user' });
+  assert.equal(response.status, 400);
+  assert(pulls < 10);
+});
+
 test('replay integrity alone never grants run verification at the API boundary', async () => {
   const response = await handleRequest(new Request(`https://ranked.example/v1/snapshot/track?trackId=${TRACK}`, {
     headers: { Origin: 'https://staticquasar931.github.io' }

@@ -3,7 +3,7 @@ import { createEventHandler } from './events.js';
 import { eventRuntime, consumeEventInbox, provisionEvent, cleanupEvents } from './events-runtime.js';
 import { readPermanentRollingHills, mergePermanentRollingIntoTotals } from './permanent-rolling-hills.js';
 
-export function eventWorkerHandler(env, { request, authenticate, origins }) {
+export function eventWorkerHandler(env, { request, authenticate, origins, context = {} }) {
   const runtime = eventRuntime(request, { projectId: env.FIREBASE_PROJECT_ID || 'polytrack-052' });
   const enabled = () => String(env.EVENTS_ENABLED) === 'true';
   const allowRequest = async ({ request: incoming, ownerUid }) => {
@@ -12,9 +12,28 @@ export function eventWorkerHandler(env, { request, authenticate, origins }) {
     const key = ownerUid || incoming.headers.get('CF-Connecting-IP');
     return !!key && (await limiter.limit({ key })).success === true;
   };
-  const events = createEventHandler({ service: runtime.service, authenticate, allowedOrigins: origins, enabled, allowRequest });
   return async incoming => {
     const url = new URL(incoming.url);
+    const cachedPublic = async (name, ttl, load) => {
+      const cache = typeof caches !== 'undefined' ? caches.default : null;
+      const keyUrl = new URL('/__event_public_cache/' + encodeURIComponent(env.FIREBASE_PROJECT_ID || 'polytrack-052') + '/' + name, url);
+      const key = new Request(keyUrl.toString());
+      const hit = cache && await cache.match(key);
+      if (hit) return hit.json();
+      const value = await load();
+      if (cache) {
+        const put = cache.put(key, new Response(JSON.stringify(value), { headers: { 'Cache-Control': 'public, max-age=' + ttl } }));
+        if (context.waitUntil) context.waitUntil(put);
+        else await put;
+      }
+      return value;
+    };
+    const service = { ...runtime.service,
+      catalog: () => cachedPublic('catalog', 20, () => runtime.service.catalog()),
+      totals: () => cachedPublic('totals', 20, () => runtime.service.totals()),
+      archiveMonth: month => cachedPublic('archive/' + month, 300, () => runtime.service.archiveMonth(month)),
+      snapshot: id => cachedPublic('snapshot/' + encodeURIComponent(id), 15, () => runtime.service.snapshot(id)) };
+    const events = createEventHandler({ service, authenticate, allowedOrigins: origins, enabled, allowRequest });
     if (incoming.method === 'GET' && url.pathname === '/v1/events/permanent-rolling-hills/snapshot') {
       const origin = incoming.headers.get('Origin') || '';
       const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', Vary: 'Origin' };
@@ -22,14 +41,14 @@ export function eventWorkerHandler(env, { request, authenticate, origins }) {
       if (!origins.has(origin)) return new Response(JSON.stringify({ error: 'origin_not_allowed' }), { status: 403, headers });
       if (!enabled()) return new Response(JSON.stringify({ error: 'events_disabled' }), { status: 503, headers });
       if (!await allowRequest({ request: incoming, ownerUid: null })) return new Response(JSON.stringify({ error: 'event_ingress_limit' }), { status: 429, headers });
-      try { return new Response(JSON.stringify(await readPermanentRollingHills(request)), { status: 200, headers }); }
+      try { return new Response(JSON.stringify(await cachedPublic('permanent-rolling-hills', 20, () => readPermanentRollingHills(request))), { status: 200, headers }); }
       catch { return new Response(JSON.stringify({ error: 'permanent_rolling_hills_unavailable' }), { status: 503, headers }); }
     }
     const response = await events(incoming);
     if (incoming.method !== 'GET' || url.pathname !== '/v1/events/totals' || response.status !== 200) return response;
     const finite = await response.json();
     try {
-      const rolling = await readPermanentRollingHills(request);
+      const rolling = await cachedPublic('permanent-rolling-hills', 20, () => readPermanentRollingHills(request));
       return new Response(JSON.stringify(mergePermanentRollingIntoTotals(finite, rolling)), { status: 200, headers: response.headers });
     } catch {
       return new Response(JSON.stringify({ ...finite, eventRpComplete: false,

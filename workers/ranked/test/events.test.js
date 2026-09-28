@@ -40,8 +40,8 @@ test('UTC daily uses community and weekly uses official without overlap', () => 
   const official = ['a', 'b', 'c'], all = ['z', 'x', 'a', 'b', 'c'];
   const [day, week] = utcEventCandidates(at, official, all);
   assert.equal(day.id, 'd_20260913'); assert.equal(week.id, 'w_20260907');
-  assert.equal(day.trackId, ['z','x'][20260913 % 2]);
-  assert.equal(week.trackId, official[(20260907 * 17 + 11) % 3]);
+  assert(['z', 'x'].includes(day.trackId));
+  assert(official.includes(week.trackId));
   assert.equal(day.maxRp, 100); assert.equal(week.maxRp, 500);
   assert.equal(day.endsAt - day.startsAt, 86400000);
   assert.equal(week.endsAt - week.startsAt, 7 * 86400000);
@@ -58,6 +58,22 @@ test('UTC daily rotation avoids consecutive community track repeats when alterna
   }
   const [singleTrack] = utcEventCandidates(Date.UTC(2026, 0, 2), ['official'], ['community', 'official']);
   assert.equal(singleTrack.trackId, 'community');
+});
+test('daily and weekly rotations cover every eligible track before repeating', () => {
+  const official = ['official-c', 'official-a', 'official-b'];
+  const community = ['community-d', 'community-a', 'community-c', 'community-b'];
+  for (const [count, stepMs, pool, kind] of [[community.length, 86400000, community, 'daily'], [official.length, 604800000, official, 'weekly']]) {
+    const first = kind === 'daily' ? Date.UTC(2026, 8, 1) : Date.UTC(2026, 8, 7);
+    const picked = Array.from({ length: count * 2 }, (_, index) => {
+      const rows = utcEventCandidates(first + index * stepMs, official, [...community, ...official]);
+      return rows.find(row => row.kind === kind).trackId;
+    });
+    assert.equal(new Set(picked.slice(0, count)).size, count);
+    assert.deepEqual(picked.slice(0, count), picked.slice(count));
+    assert.deepEqual(utcEventCandidates(first, [...official].reverse(), [...official, ...community].reverse()),
+      utcEventCandidates(first, official, [...community, ...official]));
+    assert(picked.every(id => pool.includes(id)));
+  }
 });
 test('inbox projection scans strictly after timestamp plus document name, bounded to one', async () => {
   const cursor = { receivedAt: { __firestoreTimestamp: '2026-09-12T00:00:00.123456Z' }, name: 'projects/test/documents/inbox/a' };

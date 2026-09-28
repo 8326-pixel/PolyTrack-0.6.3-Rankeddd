@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {eventWorkerMaintenance} from '../src/events-worker.js';
+import {eventWorkerHandler,eventWorkerMaintenance} from '../src/events-worker.js';
 import {EVENT_COLLECTIONS as C} from '../src/events.js';
 import {eventEncode,eventDecode} from '../src/events-store.js';
 import {utcEventCandidates} from '../src/events-runtime.js';
@@ -9,6 +9,29 @@ import {KODUB_METADATA_URL} from '../src/kodub-event.js';
 const rolling='fb769ac2ea77e8f19a21a9dd3071742f2342bd49c41e4748d7e8c7903d4f0778';
 const official='a'.repeat(64), at=Date.parse('2026-09-14T00:00:00Z');
 const capacity={policyVersion:'test',entrants:200,admissionsPerPeriod:2048,replayBytesPerPeriod:16777216,minIntervalMs:5000,verificationsPerDay:1536};
+test('public event catalog cache reuses Firestore data after ingress checks',async()=>{
+  const prior=globalThis.caches,stored=new Map(),pending=[];
+  let catalogReads=0,rateChecks=0;
+  globalThis.caches={default:{match:async key=>stored.get(key.url)?.clone()||null,
+    put:async(key,response)=>{stored.set(key.url,response.clone());}}};
+  try{
+    const handler=eventWorkerHandler({EVENTS_ENABLED:'true',FIREBASE_PROJECT_ID:'polytrack-052',
+      EVENT_RATE_LIMITER:{limit:async()=>{rateChecks++;return {success:true};}}},{
+      request:async(path)=>{if(path===':beginTransaction')return {transaction:'fixture'};
+        if(path===':commit')return {};
+        if(path.includes('event_catalog'))catalogReads++;
+        return null;},authenticate:async()=>({uid:'unused'}),origins:new Set(['https://staticquasar931.github.io']),
+      context:{waitUntil:promise=>pending.push(promise)}});
+    for(const suffix of ['?ignored=one','?ignored=two']){
+      const response=await handler(new Request('https://ranked.example/v1/events/catalog'+suffix,
+        {headers:{Origin:'https://staticquasar931.github.io','CF-Connecting-IP':'192.0.2.1'}}));
+      assert.equal(response.status,200);
+      await Promise.all(pending.splice(0));
+    }
+    assert.equal(catalogReads,1);
+    assert.equal(rateChecks,2);
+  }finally{if(prior===undefined)delete globalThis.caches;else globalThis.caches=prior;}
+});
 function fixture(target,existing=false) {
   const candidates=utcEventCandidates(at,[official],[rolling]);
   const daily=candidates.find(p=>p.kind==='daily'),weekly=candidates.find(p=>p.kind==='weekly');

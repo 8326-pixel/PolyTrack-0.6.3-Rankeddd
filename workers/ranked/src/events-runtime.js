@@ -149,15 +149,15 @@ export function utcEventCandidates(at, officialIds, allIds) {
   const day = Math.floor(at / 86400000) * 86400000;
   const monday = day - ((new Date(day).getUTCDay() + 6) % 7) * 86400000;
   const key = ms => new Date(ms).toISOString().slice(0, 10).replaceAll('-', '');
-  const communityIds=allIds.filter(id=>!officialIds.includes(id));
-  const dayIndex = communityIds.length ? Number(key(day)) % communityIds.length : -1;
-  const previousDayIndex = communityIds.length ? Number(key(day - 86400000)) % communityIds.length : -1;
-  const dailyTrackIndex = communityIds.length > 1 && dayIndex === previousDayIndex
-    ? (dayIndex + 1) % communityIds.length
-    : dayIndex;
+  const hash = value => { let result = 2166136261; for (let i = 0; i < value.length; i++) result = Math.imul(result ^ value.charCodeAt(i), 16777619); return result >>> 0; };
+  const rotation = ids => [...new Set(ids)].sort((a, b) => hash(a) - hash(b) || a.localeCompare(b));
+  const official = rotation(officialIds);
+  const community = rotation(allIds.filter(id => !officialIds.includes(id)));
+  const dailyIndex = Math.floor(day / 86400000);
+  const weeklyIndex = Math.floor(monday / 604800000);
   return [
-    ...(communityIds.length ? [{ id: 'd_' + key(day), kind: 'daily', startsAt: day, endsAt: day + 86400000, maxRp: 100, trackId: communityIds[dailyTrackIndex] }] : []),
-    { id: 'w_' + key(monday), kind: 'weekly', startsAt: monday, endsAt: monday + 7 * 86400000, maxRp: 500, trackId: officialIds[(Number(key(monday)) * 17 + 11) % officialIds.length] }
+    ...(community.length ? [{ id: 'd_' + key(day), kind: 'daily', startsAt: day, endsAt: day + 86400000, maxRp: 100, trackId: community[dailyIndex % community.length] }] : []),
+    { id: 'w_' + key(monday), kind: 'weekly', startsAt: monday, endsAt: monday + 7 * 86400000, maxRp: 500, trackId: official[weeklyIndex % official.length] }
   ];
 }
 

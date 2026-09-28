@@ -151,7 +151,7 @@ export function installEvents(bridge){
       for(const run of read(QUEUE,[])){
         if(run.accountId!==bridge.accountId())continue;
         if(now()>=run.endsAt){message('An offline event run missed the closing time. Your normal PB is unchanged.');write(QUEUE,read(QUEUE,[]).filter(row=>row.attemptId!==run.attemptId));continue;}
-        try{await bridge.submit(run);write(QUEUE,read(QUEUE,[]).filter(row=>row.attemptId!==run.attemptId));message('Event PB submitted. Waiting for replay verification.');cache.delete(run.periodId);}
+        try{await bridge.submit(run);write(QUEUE,read(QUEUE,[]).filter(row=>row.attemptId!==run.attemptId));message('Event PB submitted. Waiting for replay verification.');cache.delete(run.periodId);ownReceiptAt.delete(run.periodId+'_'+run.accountId);ownReceipts.delete(run.periodId+'_'+run.accountId);}
         catch(error){retryAt=now()+60000;message('Event PB saved on this device. Cloud submission will retry.');break;}
       }
     }finally{hasPending=read(QUEUE,[]).length>0;flushing=false;}
@@ -161,6 +161,8 @@ export function installEvents(bridge){
     latestFinish=eventRun;
     const best=bestRecords,key=eventRun.periodId+'_'+eventRun.accountId;
     if(best[key]&&best[key].timeMs<=eventRun.timeMs)return;
+    ownReceiptAt.delete(key);
+    ownReceipts.delete(key);
     write(QUEUE,keepEventBest(read(QUEUE,[]),eventRun));hasPending=true;
     best[key]={timeMs:eventRun.timeMs,attemptId:eventRun.attemptId,carStyle:eventRun.carStyle,at:now()};write(BEST,best);
     const replays=read(REPLAYS,[]);cacheWrite(REPLAYS,[{...eventRun,at:now()},...(Array.isArray(replays)?replays:[]).filter(row=>row.periodId!==eventRun.periodId||row.accountId!==eventRun.accountId)].slice(0,8));
@@ -239,7 +241,7 @@ export function installEvents(bridge){
   async function openPeriod(period,force=false){
     shell();const closed=now()>=period.endsAt;selectView(closed?'archives':'home');selected=period;const token=++requestId;body('<p>Loading event standings...</p>');
     try{
-      const board=await snapshot(period,force&&!closed),receipt=await bridge.readOwnStatus?.(period.id,bridge.accountId()).catch(()=>null);
+      const board=await snapshot(period,force&&!closed),receipt=await readReceipt(period.id,bridge.accountId(),force&&!closed);
       if(!dialog||token!==requestId)return;
       period=board.period;selected=period;ownReceipts.set(period.id+'_'+bridge.accountId(),receipt);
       const local=localBest(period),published=board.entries.find(row=>row.accountId===bridge.accountId());
@@ -426,7 +428,14 @@ export function installEvents(bridge){
     catch{if(sessions.current()===session)message('Event race could not start safely. No normal PB ghost was loaded.');}
     finally{launching=false;}
   }
-  const ownReceipts=new Map();
+  const ownReceipts=new Map(),ownReceiptAt=new Map();
+  async function readReceipt(periodId,accountId,force=false){
+    const key=periodId+'_'+accountId;
+    if(!force&&ownReceiptAt.has(key)&&now()-ownReceiptAt.get(key)<15000)return ownReceipts.get(key);
+    const receipt=await bridge.readOwnStatus?.(periodId,accountId).catch(()=>null)??null;
+    ownReceipts.set(key,receipt);ownReceiptAt.set(key,now());
+    return receipt;
+  }
   function clearNativeView(){
     if(!nativeView)return;
     nativeView.carObserver?.disconnect();
@@ -437,7 +446,7 @@ export function installEvents(bridge){
   }
   async function refreshNativeEventData(period,session){
     const accountId=bridge.accountId();
-    try{await snapshot(period);const receipt=await bridge.readOwnStatus?.(period.id,accountId).catch(()=>null);if(!session||sessions.current()!==session||bridge.accountId()!==accountId)return;ownReceipts.set(period.id+'_'+accountId,receipt);if(nativeView)nativeView.signature='';syncNativeBoard(session);}
+    try{await snapshot(period);await readReceipt(period.id,accountId);if(!session||sessions.current()!==session||bridge.accountId()!==accountId)return;if(nativeView)nativeView.signature='';syncNativeBoard(session);}
     catch{if(sessions.current()===session)message('Event standings are unavailable. Local event finishes still save.');}
   }
   function eventDisplayRows(period){
@@ -501,7 +510,7 @@ export function installEvents(bridge){
       board.querySelector('.sq-event-refresh').onclick=async()=>{
         const button=board.querySelector('.sq-event-refresh');button.disabled=true;
         profilesAt=0;
-        try{await snapshot(period,true);const receipt=await bridge.readOwnStatus?.(period.id,accountId).catch(()=>null);if(nativeView!==view||bridge.accountId()!==accountId||sessions.current()!==session)return;ownReceipts.set(period.id+'_'+accountId,receipt);view.signature='';syncNativeBoard(session);}
+        try{await snapshot(period,true);await readReceipt(period.id,accountId,true);if(nativeView!==view||bridge.accountId()!==accountId||sessions.current()!==session)return;view.signature='';syncNativeBoard(session);}
         catch{if(nativeView===view)message('Event standings could not refresh. Your saved event PB is unchanged.');}
         finally{button.disabled=false;}
       };

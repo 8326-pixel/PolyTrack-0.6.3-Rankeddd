@@ -1286,16 +1286,30 @@ async function processMigrationJob(env, supplied = null) {
 }
 
 async function requestBody(request, maxBytes = 2048) {
-  const length = Number(request.headers.get('Content-Length') || 0);
-  if (length > maxBytes) throw new Error('BODY_TOO_LARGE');
-  const text = await request.text();
-  if (new TextEncoder().encode(text).length > maxBytes) throw new Error('BODY_TOO_LARGE');
+  const length = request.headers.get('Content-Length');
+  if (length && /^\d+$/.test(length) && Number(length) > maxBytes) throw new Error('BODY_TOO_LARGE');
+  if (!request.body) return {};
+  const reader = request.body.getReader(), chunks = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) { await reader.cancel(); throw new Error('BODY_TOO_LARGE'); }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   return text ? JSON.parse(text) : {};
 }
 
 async function publicSnapshot(request, env, context, origin, collection, id) {
   const cache = typeof caches !== 'undefined' ? caches.default : null;
-  const cacheUrl = new URL(request.url);
+  const cacheUrl = new URL('/__ranked_public_cache/' + encodeURIComponent(collection) + '/' + encodeURIComponent(id), request.url);
   cacheUrl.searchParams.set('__origin', origin);
   cacheUrl.searchParams.set('__schema', String(TRACK_SCHEMA_VERSION));
   cacheUrl.searchParams.set('__algorithm', ALGORITHM_VERSION);
@@ -1374,7 +1388,7 @@ export async function handleRequest(request, env, context = {}) {
   const path = new URL(request.url).pathname.replace(/\/+$/, '') || '/';
   if (path.startsWith('/v1/events/')) return eventWorkerHandler(env, {
     request: (path, init) => firestoreRequest(env, path, init),
-    authenticate: request => verifyFirebaseUser(request, env), origins: allowedOrigins(env)
+    authenticate: request => verifyFirebaseUser(request, env), origins: allowedOrigins(env), context
   })(request);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: responseHeaders(origin, env) });
   if (path === '/v1/kodub-weekly' || path.startsWith('/v1/kodub-weekly/')) return kodubWeekly(request,responseHeaders(origin,env),context);
