@@ -80,8 +80,12 @@ export function mountExtraTracks({ document, root, entries = [], onPlay, onSave,
   title.id = titleId;
   titleGroup.append(eyebrow, title);
   const closeButton = button('Close', 'sq-extra-close', close);
-  if (typeof onExportFeedback === 'function') header.append(button('Export my picks', 'sq-extra-export', onExportFeedback));
-  header.append(titleGroup, closeButton);
+  header.append(titleGroup);
+  if (typeof onExportFeedback === 'function') header.append(button('Export my picks', 'sq-extra-export', async () => {
+    try { await onExportFeedback(); showStatus('Your track picks and saved progress were exported.'); }
+    catch { showStatus('The export could not be downloaded on this device.', true); }
+  }));
+  header.append(closeButton);
   dialog.append(header);
   const invitation = make('p', 'sq-extra-invite', 'Made a track? Direct submissions get priority review for this collection. Inclusion and featured placement are not guaranteed.');
   const inviteRow = make('div', 'sq-extra-invite-row');

@@ -153,7 +153,8 @@
     if((nav&&isElementVisible(nav)||ranked&&isElementVisible(ranked))&&!eventUi&&!eventUiPromise&&Date.now()>=eventModuleRetryAt){eventModuleRetryAt=Date.now()+60000;void ensureEventUi().then(ui=>ui.tick()).catch(()=>{});}
     const eventUiVisible=(nav&&isElementVisible(nav))||(ranked&&isElementVisible(ranked))||
       document.querySelector('.sq-events-overlay')||document.body.classList.contains('sq-event-active');
-    if(eventUi&&eventUiVisible&&Date.now()-lastEventUiTickAt>1000){lastEventUiTickAt=Date.now();eventUi.tick();}
+    const eventTickGap=document.body.classList.contains('sq-event-active')?1000:10000;
+    if(eventUi&&eventUiVisible&&Date.now()-lastEventUiTickAt>eventTickGap){lastEventUiTickAt=Date.now();eventUi.tick();}
   }
 
   function extraTrackIds(){
@@ -257,10 +258,14 @@
   }
   function extraFeedback(entry){return readExtraFeedback()[entry.trackId]||{}}
   function saveExtraFeedback(entry,change){const all=readExtraFeedback(),next={...all,[entry.trackId]:{...(all[entry.trackId]||{}),...change}};localStorage.setItem(extraFeedbackKey,JSON.stringify(next));extraFeedbackCache=next;}
-  function exportExtraFeedback(){
-    const data=readExtraFeedback();const safe={};
-    for(const [trackId,choice] of Object.entries(data))if(/^[a-f0-9]{64}$/.test(trackId)&&choice&&typeof choice==='object')safe[trackId]={favorite:choice.favorite===true,vote:choice.vote===1||choice.vote===-1?choice.vote:0,rating:Number.isInteger(choice.rating)&&choice.rating>=1&&choice.rating<=10?choice.rating:0};
-    const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),tracks:safe},null,2)],{type:'application/json'});
+  async function exportExtraFeedback(){
+    const data=readExtraFeedback(),known=extraTrackIds(),catalog=await loadExtraTracksCatalog(),tracks={};
+    extraTrackRaceRows=readLocalRaceRows();
+    for(const entry of catalog){
+      const choice=data[entry.trackId]||{},best=extraTrackPersonalBest(entry),personalBestMs=Number(best?.timeMs)||null;
+      tracks[entry.trackId]={name:entry.name,author:entry.codeAuthor||entry.author,imported:known[entry.id]===entry.trackId,played:personalBestMs!==null,personalBestMs,favorite:choice.favorite===true,vote:choice.vote===1||choice.vote===-1?choice.vote:0,rating:Number.isInteger(choice.rating)&&choice.rating>=1&&choice.rating<=10?choice.rating:0};
+    }
+    const blob=new Blob([JSON.stringify({version:2,exportedAt:new Date().toISOString(),playEvidence:'saved finish',tracks},null,2)],{type:'application/json'});
     const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='polytrack-extra-picks.json';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
   }
   async function openExtraTracks(){
@@ -552,9 +557,9 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
   const RANKED_NOTIFY_QUEUE_KEY = 'polytrack-0.6.2-s1-ranked-notify-queue-v1';
   const STREAK_LEADER_CACHE_KEY = 'polytrack-0.6.2-streak-leader-v2';
   // Snapshots never expire. This only controls when another cloud check is allowed.
-  const OVERALL_REFRESH_CHECK_MS = 2 * 60 * 1000;
+  const OVERALL_REFRESH_CHECK_MS = 10 * 60 * 1000;
   const OVERALL_REBUILD_MIN_AGE_MS = 15 * 60 * 1000;
-  const TRACK_REFRESH_MS = 2 * 60 * 1000;
+  const TRACK_REFRESH_MS = 10 * 60 * 1000;
   const RANKED_EDGE_BACKOFF_MS = 5 * 60 * 1000;
   const RANKED_EDGE_STATE_KEY = 'polytrack-0.6.2-ranked-edge-state-v1';
   const MODERATION_REFRESH_MS = 10 * 60 * 1000;
@@ -987,7 +992,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
   const profileCosmeticDrafts=new Map();
   const profileCosmeticEntries=new Map();
   const COSMETIC_DIRECTORY_KEY='polytrack-0.6.2-cosmetic-directory-v2';
-  const COSMETIC_DIRECTORY_SYNC_MS=300000;
+  const COSMETIC_DIRECTORY_SYNC_MS=30*60*1000;
   const COSMETIC_DEFAULTS=Object.freeze({theme:'classic',baseSecondary:'auto',accent:'cyan',finish:'gradient',plate:'block',edge:'accent',stage:'garage',stageTint:'natural',stageEffect:'none',stripe:'standard',emblem:'none',emblem2:'none',emblem3:'none',emblemBackdrop:'none',nameFont:'classic',nameSize:'normal',nameWeight:'regular',nameColor:'default',title:'auto',badge:'auto'});
   let cosmeticDirectoryCache=null;
   let cosmeticEpoch=0;
@@ -3524,6 +3529,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     return {entries,updatedAt:updatedAt||Date.now(),builtAt:updatedAt||Date.now(),schemaVersion:TRACK_CACHE_SCHEMA,algorithmVersion:RANK_MODEL,source:'canonical-firestore',fromCache:Boolean(snapshot.metadata?.fromCache)};
   }
 
+  const trackCloudRetryAt=new Map();
   async function getTrackEntries(trackId, limit=10, forceCloud=false){
     let entries = [];
     const safeTrackId = String(trackId || '').slice(0,80);
@@ -3536,13 +3542,14 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     currentTrackLoadState={trackId:safeTrackId,status:'loading',fetchedAt:Number(cached?.serverUpdatedAt||cached?.fetchedAt||0)||0,checkedAt:Number(cached?.fetchedAt||0)||0};
     document.documentElement.classList.add('sq-track-leaderboard-loading');
     setTimeout(updateTrackFreshnessBanner,0);
-    const cacheHit = !forceCloud && cached && !trackCacheNeedsCanonicalRefresh(cached) && Date.now()-Number(cached.fetchedAt||0) < TRACK_REFRESH_MS;
+    const cacheHit = !forceCloud && cached && (!trackCacheNeedsCanonicalRefresh(cached)||cached.source==='canonical-firestore') && Date.now()-Number(cached.fetchedAt||0) < TRACK_REFRESH_MS;
     if (cacheHit) {
       entries = applyCanonicalTrackWeight(safeTrackId,cached.entries||[]).slice(0,500);
       currentTrackLoadState={trackId:safeTrackId,status:'cache',fetchedAt:cached.serverUpdatedAt||cached.fetchedAt,checkedAt:cached.fetchedAt,nextRefreshAt:cached.fetchedAt+TRACK_REFRESH_MS};
     }
     try {
       if (!cacheHit || forceCloud) {
+        if(!forceCloud&&Date.now()<Number(trackCloudRetryAt.get(safeTrackId)||0))throw new Error('Track cloud retry cooldown');
         let data=null;
         let source='edge';
         try{data=await fetchRankedSnapshot('track',safeTrackId);}catch{}
@@ -3586,9 +3593,14 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
         entries=applyCanonicalTrackWeight(safeTrackId,entries).slice(0,500);
         if(data.fromCache)throw new Error('Firestore returned saved data, not a cloud check');
         writeTrackSnapshotCache(safeTrackId,entries,data.updatedAt||Date.now(),{revision:data.revision,sourceRevision:data.sourceRevision,algorithmVersion:data.algorithmVersion,schemaVersion:data.schemaVersion,source,checkedAt:Date.now(),complete:data.complete,totalEntries:data.totalEntries});
+        trackCloudRetryAt.delete(safeTrackId);
         if(loadGeneration===trackLoadGeneration)currentTrackLoadState={trackId:safeTrackId,status:'cloud',fetchedAt:Number(data.updatedAt||0)||Date.now(),checkedAt:Date.now(),nextRefreshAt:Date.now()+TRACK_REFRESH_MS};
       }
     } catch (error) {
+      if(error?.message!=='Track cloud retry cooldown'){
+        trackCloudRetryAt.set(safeTrackId,Date.now()+60000);
+        if(trackCloudRetryAt.size>256)trackCloudRetryAt.delete(trackCloudRetryAt.keys().next().value);
+      }
       const fallback=readTrackSnapshotCache(safeTrackId)||cached;
       if (fallback) entries=applyCanonicalTrackWeight(safeTrackId,fallback.entries||[]).slice(0,500);
       const localRows = readLocalRaceRows().filter((row)=>String(row.trackId||'')===String(trackId||''));
@@ -3851,6 +3863,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
       }catch{return entry;}
     });
   }
+  let overallCloudRetryAt=0;
   async function fetchOverallEntries(forceRefresh=false){
     let direct = [];
     const cached = readOverallSnapshotCache();
@@ -3858,6 +3871,10 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     if (!forceRefresh && cached && Date.now()-Number(cached.fetchedAt||0) < OVERALL_REFRESH_CHECK_MS) {
       overallLoadState={status:'cache',message:'Saved ranked snapshot',fetchedAt:cached.serverUpdatedAt||cached.fetchedAt,serverUpdatedAt:cached.serverUpdatedAt||0,checkedAt:Number(cached.fetchedAt||0),nextRefreshAt:Number(cached.fetchedAt||0)+OVERALL_REFRESH_CHECK_MS,complete:cached.complete===true,totalEntries:cached.totalEntries,totalEntriesExact:cached.totalEntriesExact===true,publishedEntries:cached.publishedEntries,ranksExact:cached.ranksExact===true};
       return annotateOverallMovement(cached.entries,cached.signature);
+    }
+    if(!forceRefresh&&Date.now()<overallCloudRetryAt){
+      overallLoadState={status:cached?.entries?.length?'stale':'error',message:'Cloud retry paused after a failed check',fetchedAt:cached?.serverUpdatedAt||cached?.fetchedAt||0,nextRefreshAt:overallCloudRetryAt};
+      return cached?.entries?.length?annotateOverallMovement(cached.entries,cached.signature||'saved'):[];
     }
     overallLoadState = {status:'loading',message:'',fetchedAt:cached?.fetchedAt||0};
     try {
@@ -3901,6 +3918,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
       }
       const validDirect = Array.isArray(data.entries) && Array.isArray(data.trackSummaries) && algorithmVersion===RANK_MODEL && schemaVersion>=TRACK_CACHE_SCHEMA && builtRevision>=sourceRevision && direct.every((entry)=>String(entry?.rankModel||'')===RANK_MODEL&&Number(entry?.averageFinishVersion||0)>=AVERAGE_FINISH_VERSION&&Number(entry?.averagePlacementVersion||0)>=AVERAGE_PLACEMENT_VERSION);
       if (fromFirestoreCache) {
+        overallCloudRetryAt=Date.now()+60000;
         const useDirect=validDirect&&(!cached||updatedAt>Number(cached.serverUpdatedAt||0));
         const fallback=useDirect?direct:(cached?.entries||[]);
         if(useDirect)overallTrackSummariesCache=data.trackSummaries.slice(0,TOTAL_TRACKS);
@@ -3908,18 +3926,22 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
         return [];
       }
       if (validDirect && !(cached?.algorithmVersion===algorithmVersion && sourceRevision<Number(cached.sourceRevision||cached.revision||0))) {
+        overallCloudRetryAt=0;
         overallTrackSummariesCache=Array.isArray(data.trackSummaries)?data.trackSummaries.slice(0,TOTAL_TRACKS):[];
         writeOverallSnapshotCache(direct,{serverUpdatedAt:updatedAt,revision,builtRevision,sourceRevision,algorithmVersion,schemaVersion,source,signature,trackSummaries:overallTrackSummariesCache,complete,totalEntries,totalEntriesExact,publishedEntries,ranksExact});
         overallLoadState={status:'cloud',message:'Community Ranked snapshot',fetchedAt:updatedAt||Date.now(),serverUpdatedAt:updatedAt||0,checkedAt:Date.now(),nextRefreshAt:Date.now()+OVERALL_REFRESH_CHECK_MS,complete,totalEntries,totalEntriesExact,publishedEntries,ranksExact};
         return annotateOverallMovement(direct,signature);
       }
       if(cached?.entries?.length){
+        overallCloudRetryAt=Date.now()+60000;
         overallLoadState={status:'stale',message:'Waiting for a current complete snapshot · showing saved rankings',fetchedAt:cached.serverUpdatedAt||cached.fetchedAt,checkedAt:Date.now(),nextRefreshAt:Date.now()+OVERALL_REFRESH_CHECK_MS,complete:cached.complete===true,totalEntries:cached.totalEntries,totalEntriesExact:cached.totalEntriesExact===true,publishedEntries:cached.publishedEntries,ranksExact:cached.ranksExact===true};
         return annotateOverallMovement(cached.entries,cached.signature||'saved');
       }
+      overallCloudRetryAt=Date.now()+60000;
       overallLoadState={status:'pending',message:'Community Ranked is building its first complete snapshot.'};
       return [];
     } catch (error) {
+      overallCloudRetryAt=Date.now()+60000;
       if (isLocalApiCapableHost()) {
         try {
           const res = await fetch('/api/overall-leaderboard', { cache: 'no-store' });
@@ -4266,13 +4288,15 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
   }
   function renderEventEntryRow(row,index){
     const id=cleanUserId(row.accountId),name=escapeHtml(safeDisplayName(row.nickname||row.name,id));
-    const rank=row.rank==null?'N/A':'#'+row.rank,rp=row.rp==null?'N/A':formatRp(row.rp);
+    const points=value=>value==null?'N/A':Math.round(value).toLocaleString();
+    const rank=row.rank==null?'N/A':'#'+row.rank,rp=points(row.rp);
     const count=row.events==null?'Event count unavailable':`${row.events} event${row.events===1?'':'s'}`;
     const rollingRp=row.rollingHillsEventRpContribution??row.permanentRollingHillsRp;
     const snapshotAt=Number(savedEventTotals()?.updatedAt||0)||0;
     const rollingAge=row.rollingHillsRunAgeMs==null?null:row.rollingHillsRunAgeMs+Math.max(0,Date.now()-snapshotAt);
-    const rollingDetails=rollingRp==null&&row.rollingHillsTimeMs==null&&rollingAge==null?'':`<span class="overall-best-line"><b>Rolling Hills</b>${rollingRp==null?'':` +${formatRp(rollingRp)} Event RP`}${row.rollingHillsTimeMs==null?'':` · ${formatRaceTime(row.rollingHillsTimeMs)}`}${rollingAge==null?'':` · run ${durationLabel(rollingAge)} old`}</span>`;
-    return `<div class="overall-entry ${row.rank===1?'top-1':row.rank===2?'top-2':row.rank===3?'top-3':''} ${id===activeRankedAccountId()?'is-self':''} ${racerCosmeticClasses(row)}" data-userid="${escapeHtml(id)}" data-category="events" tabindex="0" role="button" aria-label="View ${name} profile. Event RP: ${escapeHtml(rp)}" style="animation-delay:${(index*.03).toFixed(3)}s"><span class="overall-rank">${rank}</span><span class="overall-name">${row.carStyle?carModelPreview(row.carStyle,row.carColorId||row.carColors,id):''}<span class="overall-name-label"><span class="overall-name-main">${name}${countryFlagMarkup(row.countryCode)}${id===activeRankedAccountId()?'<span class="overall-you-tag">YOU</span>':''}${profileBadgeMarkup(row,true)}</span><span class="overall-racer-meta">Verified event PBs</span></span></span><div class="overall-mid"><span class="overall-move flat">${count}</span><div class="overall-best">${rollingDetails||'Lifetime verified events'}</div></div><div class="overall-stats"><div class="overall-score">${rp}</div><div class="overall-score-unit" title="Event RP">ERP</div></div></div>`;
+    const timedRp=row.rp!=null&&rollingRp!=null&&row.rp>=rollingRp?row.rp-rollingRp:null;
+    const rollingDetails=rollingRp==null&&row.rollingHillsTimeMs==null&&rollingAge==null?'':`<span class="overall-best-line"><b>Rolling Hills</b>${rollingRp==null?'':` +${points(rollingRp)} ERP`}${row.rollingHillsTimeMs==null?'':` · ${formatRaceTime(row.rollingHillsTimeMs)}`}${rollingAge==null?'':` · run ${durationLabel(rollingAge)} old`}</span>`;
+    return `<div class="overall-entry ${row.rank===1?'top-1':row.rank===2?'top-2':row.rank===3?'top-3':''} ${id===activeRankedAccountId()?'is-self':''} ${racerCosmeticClasses(row)}" data-userid="${escapeHtml(id)}" data-category="events" tabindex="0" role="button" aria-label="View ${name} profile. Event RP: ${escapeHtml(rp)}" style="animation-delay:${(index*.03).toFixed(3)}s"><span class="overall-rank">${rank}</span><span class="overall-name">${row.carStyle?carModelPreview(row.carStyle,row.carColorId||row.carColors,id):''}<span class="overall-name-label"><span class="overall-name-main">${name}${countryFlagMarkup(row.countryCode)}${id===activeRankedAccountId()?'<span class="overall-you-tag">YOU</span>':''}${profileBadgeMarkup(row,true)}</span><span class="overall-racer-meta">${count}</span></span></span><div class="overall-mid"><span class="overall-move flat">${timedRp===null?'Verified event PBs':`${points(timedRp)} ERP from timed events`}</span><div class="overall-best">${rollingDetails||'Lifetime verified events'}</div></div><div class="overall-stats"><div class="overall-score">${rp}</div><div class="overall-score-unit" title="Event RP">ERP</div></div></div>`;
   }
   function renderEventEntries(listEl){
     const rows=sortedEventEntries();updateOverallPager();
@@ -4281,7 +4305,9 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
       const known=Boolean(savedEventTotals());
       listEl.innerHTML=`<div class="overall-empty"><strong>${eventTotalsState.status==='loading'?'Loading Event RP':known?'No Event RP earned yet':'Event RP unavailable'}</strong><span>${known?'Only verified event PBs earn points. Try a live event.':'No saved event standings are available. Your local PBs remain saved.'}</span><button class="button" type="button" data-rank-retry>Refresh Event RP</button></div>`;
     }else{
-      listEl.innerHTML=rows.slice(overallPage*OVERALL_PAGE_SIZE,(overallPage+1)*OVERALL_PAGE_SIZE).map(renderEventEntryRow).join('');
+      const own=rows.find(row=>row.accountId===activeRankedAccountId());
+      const summary=`<div class="event-rp-summary"><span><b>${rows.length}</b> racers shown</span><span><b>${own?.rank?'#'+own.rank:'Unranked'}</b> your place</span><span>Verified event PBs only. Rolling Hills also earns normal RP.</span></div>`;
+      listEl.innerHTML=summary+rows.slice(overallPage*OVERALL_PAGE_SIZE,(overallPage+1)*OVERALL_PAGE_SIZE).map(renderEventEntryRow).join('');
       hydrateOverallCarModels(listEl);
     }
     listEl.scrollTop=0;
@@ -4980,7 +5006,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
       openRankedDialog(popup);return;
     }
     if(!entry||!popup||!content)return;
-    if(Number(entry.extraCount||0)>0&&!extraTrackInfoById.size&&!extraProfileRefreshPending){
+    if(!extraTrackInfoById.size&&!extraProfileRefreshPending){
       extraProfileRefreshPending=true;
       void loadExtraTracksCatalog().then(()=>{
         if(extraTrackInfoById.size&&popup.dataset.profileUser===cleanUserId(userId)&&isElementVisible(popup))openRankedProfile(userId);
@@ -5041,7 +5067,8 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     const scoreChange=scoreDelta<0?`Improved ${formatRp(Math.abs(scoreDelta))} RP`:scoreDelta>0?`Lost ${formatRp(scoreDelta)} RP`:'No saved RP change';
     const extraCount=Math.max(0,Number(entry.extraCount||0));
     const otherCustomCount=Math.max(0,Number(entry.customCount||0)-extraCount);
-    const participation=`${Number(entry.officialCount||0)} official${Number(entry.communityCount||0)?` · ${Number(entry.communityCount)} community`:''}${extraCount?` · ${extraCount} Extra`:''}${otherCustomCount?` · ${otherCustomCount} other custom`:''}`;
+    const savedExtraCount=isSelf?new Set(cachedFinishes.filter(finish=>extraTrackInfoById.has(finish.trackId)).map(finish=>finish.trackId)).size:0;
+    const participation=`${Number(entry.officialCount||0)} official${Number(entry.communityCount||0)?` · ${Number(entry.communityCount)} community`:''}${extraCount?` · ${extraCount} scored Extra`:''}${savedExtraCount>extraCount?` · ${savedExtraCount} saved Extra PBs`:''}${otherCustomCount?` · ${otherCustomCount} other custom`:''}`;
     const uid=escapeHtml(entry.userId);
     const achievements=profileAchievementMarkup(medals);
     const currentRankSince=Math.max(0,Number(entry.rankSince||entry.movementAt||0)||0);
@@ -5205,7 +5232,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     const alreadyVisible=isElementVisible(panel);
     if(overallCategory==='events'){
       panel.style.display='flex';
-      if(!rankedFreshnessTimer)rankedFreshnessTimer=setInterval(()=>{updateRankedFreshness();updateRankDurationLabels(panel);},1000);
+      if(!rankedFreshnessTimer)rankedFreshnessTimer=setInterval(()=>{if(isElementVisible(panel)){updateRankedFreshness();updateRankDurationLabels(panel);}},15000);
       if(!overallEntriesCache.length)overallEntriesCache=readOverallSnapshotCache()?.entries||[];
       syncCategorySelect(panel);
       const scope=panel.querySelector('#overallTrackScope');if(scope)scope.hidden=true;
@@ -5216,13 +5243,13 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     const generation = ++overallLoadGeneration;
     const dirtyPb=readJsonStorage(OVERALL_PB_DIRTY_KEY,null);
     const savedBeforeOpen=readOverallSnapshotCache();
-    const pbNeedsCheck=Boolean(dirtyPb?.at)&&Date.now()-Number(savedBeforeOpen?.fetchedAt||0)>=OVERALL_REFRESH_CHECK_MS;
+    const pbNeedsCheck=Boolean(dirtyPb?.at)&&Date.now()-Number(dirtyPb.at)>=15000&&Number(dirtyPb.at)>Number(savedBeforeOpen?.fetchedAt||0)&&Date.now()>=overallCloudRetryAt;
     const shouldForceRefresh=forceRefresh||pbNeedsCheck;
     panel.style.display='flex';
     // Cosmetic directory checks have their own cadence; a rankings refresh is
     // not a reason to read the same public profiles again.
     syncCosmeticDirectory(false);
-    if(!rankedFreshnessTimer)rankedFreshnessTimer=setInterval(()=>{updateRankedFreshness();updateRankDurationLabels(panel);},1000);
+    if(!rankedFreshnessTimer)rankedFreshnessTimer=setInterval(()=>{if(isElementVisible(panel)){updateRankedFreshness();updateRankDurationLabels(panel);}},15000);
     const dailyGrid=panel.querySelector('#overallDailyGrid');
     if(dailyGrid&&!alreadyVisible) dailyGrid.outerHTML=dailySpotlightMarkup();
     const trackScope=panel.querySelector('#overallTrackScope');
@@ -7033,7 +7060,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     install();
     void ensureEventUi().then(()=>ensureEventEntry()).catch(()=>{});
     observer.observe(document.body || document.documentElement, uiObserverOptions);
-    setInterval(()=>{if(document.visibilityState==='visible')reconcileUI();}, 5000);
+    setInterval(()=>{if(document.visibilityState==='visible')reconcileUI();}, 15000);
     setTimeout(()=>db().then(()=>flushRankedNotificationQueue()).catch(()=>{}),2500);
     window.addEventListener('keydown', (event)=>{
       handleModeratorSequence(event);

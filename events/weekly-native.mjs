@@ -39,7 +39,13 @@ export function installWeeklyEventNavigation(document, getSelection, openEvent) 
     }
     button.title='Open weekly event results. Event PBs are separate from normal PBs.';
   };
-  let pending=false;const observer=new MutationObserver(()=>{if(pending)return;pending=true;requestAnimationFrame(()=>{pending=false;sync();});});
+  let pending=false;const observer=new MutationObserver(records=>{
+    if(pending||!records.some(record=>{
+      if(record.target?.closest?.('.track-selection-ui'))return true;
+      return [...record.addedNodes,...record.removedNodes].some(node=>node.nodeType===1&&(node.matches?.('.track-selection-ui')||node.querySelector?.('.track-selection-ui')));
+    }))return;
+    pending=true;requestAnimationFrame(()=>{pending=false;sync();});
+  });
   observer.observe(document.body,{childList:true,subtree:true});sync();
   document.addEventListener('click',handler,true);
   return () => {observer.disconnect();document.removeEventListener('click',handler,true);};

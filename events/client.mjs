@@ -117,7 +117,7 @@ export function installEvents(bridge){
   async function loadPermanent(){
     if(typeof bridge.readPermanent!=='function')return permanent;
     if(permanentFetching)return permanentFetching;
-    if(now()-permanentAt<120000)return permanent;
+    if(now()-permanentAt<300000)return permanent;
     permanentAt=now();permanentFetching=bridge.readPermanent().then(value=>{
       if(value?.id!=='permanent-rolling-hills'||value.complete!==true||!Array.isArray(value.entries)||value.maxRp!==1001)throw Error('Incomplete permanent event standings');
       if(!permanent||value.sourceRevision>=permanent.sourceRevision){permanent=value;cacheWrite(STORE+'-permanent',value);}
@@ -126,7 +126,7 @@ export function installEvents(bridge){
     return permanentFetching;
   }
   async function loadCatalog(force=false){
-    if(fetching)return fetching;if(!force&&catalogAt&&now()-catalogAt<120000)return catalog;
+    if(fetching)return fetching;if(!force&&catalogAt&&now()-catalogAt<300000)return catalog;
     fetching=bridge.readCatalog().then(storeCatalog).catch(error=>{catalogAt=now();if(!catalog.periods?.length)throw error;return catalog;}).finally(()=>fetching=null);
     return fetching;
   }
@@ -215,7 +215,7 @@ export function installEvents(bridge){
   function cards(periods){periods.forEach(p=>knownPeriods.set(p.id,p));return periods.map(p=>`<button type="button" class="sq-event-card" data-event-id="${escape(p.id)}" data-event-kind="${escape(p.kind)}"><span class="sq-event-thumb">${bridge.thumbnail(p.trackId)}</span><div class="sq-event-record">${recordMarkup(p)}</div><span><small>${escape(p.kind==='daily'?'DAILY EVENT':p.kind==='weekly'?'WEEKLY EVENT':p.kind==='kodub'?'KODUB WEEKLY':p.label||'EVENT')}</small><strong>${escape(periodName(p))}</strong><span>Up to ${Number(p.maxRp)||0} Event RP</span>${Number.isInteger(p.entrantLimit)?`<small>Up to ${p.entrantLimit} racers</small>`:''}<small>${now()<p.endsAt?'Ends':'Ended'} ${escape(reset(p))}</small></span></button>`).join('');}
   function permanentCard(){
     const counts=archivePeriodCounts(PERMANENT_ROLLING,permanent),own=counts.verifiedEntries.find(row=>row.accountId===bridge.accountId());
-    const record=own?'<time>'+time(own.timeMs)+'</time><small>'+Number(own.rp||0)+' Event RP</small>':'No record';
+    const record=own?'<time>'+time(own.timeMs)+'</time><small>'+Math.round(Number(own.rp)||0)+' Event RP</small>':'No record';
     return `<button type="button" class="sq-event-card sq-event-permanent" data-event-permanent><span class="sq-event-thumb">${bridge.thumbnail(ROLLING_TRACK_ID)}</span><div class="sq-event-record">${record}</div><span><small>PERMANENT EVENT</small><strong>Rolling Hills Racer</strong><span>Normal RP + up to 1001 Event RP</span><small>No reset</small></span></button>`;
   }
   function selectView(view){entryRequest++;message('');for(const button of dialog.querySelectorAll('nav button'))button.setAttribute('aria-pressed',String(button.hasAttribute('data-event-'+view)));}
@@ -619,7 +619,7 @@ export function installEvents(bridge){
       const own=permanent?.entries?.find(row=>row.accountId===bridge.accountId());
       const elapsed=own?.runAt?Math.max(0,now()-own.runAt):null;
       const age=elapsed===null?'':elapsed<60000?' / just now':elapsed<3600000?' / '+Math.floor(elapsed/60000)+'m ago':elapsed<86400000?' / '+Math.floor(elapsed/3600000)+'h ago':' / '+Math.floor(elapsed/86400000)+'d ago';
-      const text=own?'Normal RP + '+own.rp+' / 1001 Event RP'+age:'Normal RP + up to 1001 Event RP / No reset';
+      const text=own?'Normal RP + '+Math.round(Number(own.rp)||0)+' / 1001 Event RP'+age:'Normal RP + up to 1001 Event RP / No reset';
       if(permanentNote.textContent!==text)permanentNote.textContent=text;
       permanentNote.title='Both rewards use your normal physics-verified personal best. Event RP follows the fastest verified Rolling Hills time; repeated runs do not stack.';
     }

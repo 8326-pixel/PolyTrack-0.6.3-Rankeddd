@@ -7,6 +7,11 @@ function setup(saved=null){
  return {ctx,elements,getSaved:()=>saved};
 }
 const row=(id='a',rp=20,rank=1)=>({accountId:id,name:'Event Racer',rp,rank,events:2});
+test('Event RP display rounds fractional totals without changing the snapshot',()=>{
+ const {ctx}=setup();const entry=row('a',27.4);const html=ctx.renderEventEntryRow(entry,0);
+ assert.match(html,/class="overall-score">27<\/div>/);assert.doesNotMatch(html,/27\.4/);
+ assert.equal(entry.rp,27.4);
+});
 test('event sorting preserves server ties and only joins cached presentation',()=>{
  const {ctx}=setup({updatedAt:1,entries:[row('b',20,1),row('a',20,1),row('c',2,3)]});
  ctx.overallEntriesCache=[{userId:'a',name:'Saved Name',nickname:'Nick',rank:99,score:999,events:99,rp:999,provisional:true,profileCosmetics:{theme:'cyan'}}];
@@ -23,7 +28,7 @@ test('Rolling Hills totals preserve bounded optional contribution, time and adva
  const valid=ctx.normalizeEventTotals({updatedAt,entries:[{...row(),rollingHillsRunAgeMs:1000,rollingHillsEventRpContribution:500,permanentRollingHillsRp:500,rollingHillsTimeMs:20000}]}).entries[0];
  assert.equal(valid.rollingHillsRunAgeMs,1000);assert.equal(valid.rollingHillsEventRpContribution,500);assert.equal(valid.permanentRollingHillsRp,500);assert.equal(valid.rollingHillsTimeMs,20000);
  ctx.eventTotalsSnapshot={updatedAt,entries:[valid]};const html=ctx.renderEventEntryRow(valid,0);
- assert.match(html,/Rolling Hills/);assert.match(html,/\+500 Event RP/);assert.match(html,/20000ms/);assert.match(html,/run [5-9]\d{3}ms old/);
+ assert.match(html,/Rolling Hills/);assert.match(html,/\+500 ERP/);assert.match(html,/20000ms/);assert.match(html,/run [5-9]\d{3}ms old/);
  const invalid=ctx.normalizeEventTotals({updatedAt,entries:[{...row('b'),rollingHillsRunAgeMs:-1,rollingHillsEventRpContribution:1002,permanentRollingHillsRp:'500',rollingHillsTimeMs:0}]}).entries[0];
  assert.equal(invalid.rollingHillsRunAgeMs,null);assert.equal(invalid.rollingHillsEventRpContribution,null);assert.equal(invalid.permanentRollingHillsRp,null);assert.equal(invalid.rollingHillsTimeMs,null);
  assert.doesNotMatch(ctx.renderEventEntryRow(invalid,0),/Rolling Hills/);
