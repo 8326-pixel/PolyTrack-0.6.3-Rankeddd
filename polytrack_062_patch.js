@@ -6740,8 +6740,8 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
       const target = String(url || '').trim();
       const normalized = target.toLowerCase();
       const isKodubMultiplayer = normalized.includes('vps.kodub.com') && (normalized.includes('/multiplayer/host') || normalized.includes('/multiplayer/join'));
-      if (isKodubMultiplayer) {
-        log('info','[MP100] Firebase multiplayer socket intercepted',{url:target});
+      if (isKodubMultiplayer && window.POLYTRACK_GLOBAL_MULTIPLAYER !== true) {
+        log('info','[MP100] Community Firebase multiplayer socket intercepted',{url:target});
         return new FirebaseSignalingSocket(target);
       }
       return protocols === undefined ? new NativeWebSocket(url) : new NativeWebSocket(url,protocols);
