@@ -19,6 +19,7 @@ test('lobby observer avoids polling and document-wide style observation', () => 
 test('lobby menu display writes are guarded against observer re-entry', () => {
   assert.match(region, /const display = lobby \? 'flex' : 'none'/);
   assert.match(region, /if\s*\(menu\.style\.display\s*!==\s*display\)\s*menu\.style\.display\s*=\s*display/);
-  assert.match(region, /const structureObserver = new MutationObserver\(queueSync\)/);
+  assert.match(region, /const structureObserver = new MutationObserver\(\(records\) =>/);
+  assert.match(region, /if \(changed\) queueSync\(\)/);
   assert.match(region, /visualObserver = new MutationObserver\(queueSync\)/);
 });

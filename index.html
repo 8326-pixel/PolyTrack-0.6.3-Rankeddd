@@ -189,7 +189,17 @@
         }
 
         syncLobbyWidgets();
-        const structureObserver = new MutationObserver(queueSync);
+        const structureObserver = new MutationObserver((records) => {
+          const menuStructure = '.menu-ui, .menu, .main-buttons-container';
+          const changed = records.some((record) =>
+            record.target.matches?.('.main-buttons-container') ||
+            [...record.addedNodes, ...record.removedNodes].some((node) =>
+              node.nodeType === Node.ELEMENT_NODE &&
+              (node.matches?.(menuStructure) || node.querySelector?.(menuStructure))
+            )
+          );
+          if (changed) queueSync();
+        });
         structureObserver.observe(uiRoot || document.body, {
           subtree: true,
           childList: true

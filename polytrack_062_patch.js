@@ -6229,13 +6229,10 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
 
   let rankingsSyncHandle = 0;
   function scheduleRankingsSync(button, container){
-    if (rankingsSyncHandle) {
-      cancelAnimationFrame(rankingsSyncHandle);
-      rankingsSyncHandle = 0;
-    }
+    if (rankingsSyncHandle) return;
     const started = Date.now();
     const tick = ()=>{
-      if (!button || !button.isConnected || !container || !container.isConnected) { rankingsSyncHandle = 0; return; }
+      if (!button || !button.isConnected || !container || !container.isConnected || !isElementVisible(container)) { rankingsSyncHandle = 0; return; }
       syncRankingsButtonAnimation(button, container);
       if (Date.now() - started > 2600 || rankingsSpawnedOnce) { rankingsSyncHandle = 0; return; }
       rankingsSyncHandle = requestAnimationFrame(tick);
@@ -6833,6 +6830,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     }
   }
 
+  let nativeDecorationLookupCache=null;
   function decorateNativeLeaderboardCosmetics(){
     const trackId=String(currentTrackLoadState?.trackId||'');
     if(!trackId)return;
@@ -6841,14 +6839,20 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     ensureNativeAllRunsDefault(host);
     const buttons=Array.from(host.querySelectorAll(':scope > .container > button.main'));
     if(!buttons.length)return;
-    const rows=localTrackDisplayEntries(trackId,readTrackSnapshotCache(trackId)?.entries||[],activeRankedAccountId()).sort((a,b)=>canonicalRaceTimeMs(a)-canonicalRaceTimeMs(b));
-    const byVisibleResult=new Map();
-    for(const row of rows){
-      const timeMs=canonicalRaceTimeMs(row);
-      if(timeMs<=0)continue;
-      const key=safeDisplayName(row.nickname||row.name||'',row.accountId||row.userId)+'|'+formatRaceTime(timeMs);
-      byVisibleResult.set(key,byVisibleResult.has(key)?null:row);
+    const accountId=activeRankedAccountId();
+    const lookupKey=[trackId,trackCacheGeneration,localRaceGeneration,accountId].join('|');
+    if(nativeDecorationLookupCache?.key!==lookupKey){
+      const rows=localTrackDisplayEntries(trackId,readTrackSnapshotCache(trackId)?.entries||[],accountId);
+      const byVisibleResult=new Map();
+      for(const row of rows){
+        const timeMs=canonicalRaceTimeMs(row);
+        if(timeMs<=0)continue;
+        const key=safeDisplayName(row.nickname||row.name||'',row.accountId||row.userId)+'|'+formatRaceTime(timeMs);
+        byVisibleResult.set(key,byVisibleResult.has(key)?null:row);
+      }
+      nativeDecorationLookupCache={key:lookupKey,rows:byVisibleResult};
     }
+    const byVisibleResult=nativeDecorationLookupCache.rows;
     for(const button of buttons){
       const rank=Math.max(0,Number((String(button.querySelector('.position')?.textContent||'').match(/\d+/)||[])[0]||0)||0);
       const visibleName=Array.from(button.querySelector('.name')?.childNodes||[]).filter(node=>node.nodeType===Node.TEXT_NODE).map(node=>node.textContent||'').join('').trim();
@@ -6867,7 +6871,6 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
       button.classList.toggle('sq-racer-top',rank>0&&rank<=3);
       decorateNativeLeaderboardIdentity(button,identity);
     }
-    syncIntegrityStateLabels();
   }
 
   /* The per-track rows are rendered by the game, so the country flag is
@@ -6931,8 +6934,8 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
 
     ensureSettingsEnhancements();
     syncMultiplayerRelayPanel();
-    syncIntegrityStateLabels();
     decorateNativeLeaderboardCosmetics();
+    syncIntegrityStateLabels();
     ensureWeeklyTrackHighlight();
     updateTrackFreshnessBanner();
   }
