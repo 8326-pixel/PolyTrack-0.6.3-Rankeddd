@@ -42,7 +42,8 @@ jobs:
             throw new Error('Custom-build multiplayer must keep the Firebase/WebRTC relay enabled.');
           }
 
-          const turnMatch = index.match(/window\.POLYTRACK_TURN_BROKER_URL\s*=\s*['"]([^'"]+)['"]/);\n          if (!turnMatch || !turnMatch[1].startsWith('https://')) {
+          const turnMatch = index.match(/window\.POLYTRACK_TURN_BROKER_URL\s*=\s*['"]([^'"]+)['"]/) ;
+          if (!turnMatch || !turnMatch[1].startsWith('https://')) {
             throw new Error('TURN broker is not configured with an HTTPS endpoint.');
           }
 
