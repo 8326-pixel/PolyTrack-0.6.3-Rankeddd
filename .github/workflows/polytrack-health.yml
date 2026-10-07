@@ -1,0 +1,89 @@
+name: PolyTrack health checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  static-health:
+    name: Static production checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate production configuration
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+
+          const index = fs.readFileSync('index.html', 'utf8');
+          const vercel = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
+
+          const required = [
+            ['canonical URL', 'https://rankeddd-vu65.vercel.app/'],
+            ['Open Graph URL', 'https://rankeddd-vu65.vercel.app/'],
+            ['Open Graph image', 'https://rankeddd-vu65.vercel.app/images/cover1920x1080.png'],
+            ['Twitter image', 'https://rankeddd-vu65.vercel.app/images/cover1920x1080.png']
+          ];
+
+          for (const [name, value] of required) {
+            if (!index.includes(value)) throw new Error(`Missing \${name}: \${value}`);
+          }
+
+          if (index.includes('staticquasar931.github.io/PolyTrack-0.6.3-Ranked')) {
+            throw new Error('Old GitHub Pages URL is still referenced by production metadata.');
+          }
+
+          if (!/POLYTRACK_GLOBAL_MULTIPLAYER\\s*=\\s*false/.test(index)) {
+            throw new Error('Custom-build multiplayer must keep the Firebase/WebRTC relay enabled.');
+          }
+
+          if (!/POLYTRACK_TURN_BROKER_URL\\s*=\\s*['"]https:\\/\\//.test(index)) {
+            throw new Error('TURN broker is not configured with an HTTPS endpoint.');
+          }
+
+          const headers = Object.fromEntries(
+            (vercel.headers || [])
+              .flatMap(rule => rule.headers || [])
+              .map(h => [h.key.toLowerCase(), h.value])
+          );
+
+          for (const key of ['x-content-type-options', 'referrer-policy', 'permissions-policy']) {
+            if (!headers[key]) throw new Error(`Missing Vercel security header: \${key}`);
+          }
+
+          const wasmRule = (vercel.headers || []).find(rule => rule.source === '/polytrack_physics.wasm');
+          if (!wasmRule) throw new Error('Missing WASM response-header rule.');
+
+          const wasmHeaders = Object.fromEntries(
+            (wasmRule.headers || []).map(h => [h.key.toLowerCase(), h.value])
+          );
+
+          if (wasmHeaders['content-type'] !== 'application/wasm') {
+            throw new Error('WASM content type is not application/wasm.');
+          }
+
+          console.log('Production configuration checks passed.');
+          NODE
+
+  client-tests:
+    name: Client regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Run client tests
+        run: npm run test:client
