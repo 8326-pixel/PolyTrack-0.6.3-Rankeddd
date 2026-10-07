@@ -31,18 +31,18 @@ jobs:
           ];
 
           for (const [name, value] of required) {
-            if (!index.includes(value)) throw new Error(`Missing \${name}: \${value}`);
+            if (!index.includes(value)) throw new Error('Missing production metadata value: ' + name + ' -> ' + value);
           }
 
           if (index.includes('staticquasar931.github.io/PolyTrack-0.6.3-Ranked')) {
             throw new Error('Old GitHub Pages URL is still referenced by production metadata.');
           }
 
-          if (!/POLYTRACK_GLOBAL_MULTIPLAYER\\s*=\\s*false/.test(index)) {
+          if (!/POLYTRACK_GLOBAL_MULTIPLAYER\s*=\s*false/.test(index)) {
             throw new Error('Custom-build multiplayer must keep the Firebase/WebRTC relay enabled.');
           }
 
-          if (!/POLYTRACK_TURN_BROKER_URL\\s*=\\s*['"]https:\\/\\//.test(index)) {
+          const turnMatch = index.match(/window\.POLYTRACK_TURN_BROKER_URL\s*=\s*['"]([^'"]+)['"]/);\n          if (!turnMatch || !turnMatch[1].startsWith('https://')) {
             throw new Error('TURN broker is not configured with an HTTPS endpoint.');
           }
 
@@ -53,7 +53,7 @@ jobs:
           );
 
           for (const key of ['x-content-type-options', 'referrer-policy', 'permissions-policy']) {
-            if (!headers[key]) throw new Error(`Missing Vercel security header: \${key}`);
+            if (!headers[key]) throw new Error('Missing Vercel security header: ' + key);
           }
 
           const wasmRule = (vercel.headers || []).find(rule => rule.source === '/polytrack_physics.wasm');
