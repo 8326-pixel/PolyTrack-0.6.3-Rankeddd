@@ -1,21 +1,47 @@
-# PolyTrack Ranked
+# PolyTrack 0.6.3 Ranked
 
-Race PolyTrack, chase personal bests, and compare times with other players.
+A community edition of PolyTrack 0.6.3 with Ranked, events, replays, Extra Tracks, customization, and cross-network multiplayer.
 
-[Play PolyTrack Ranked](https://staticquasar931.github.io/PolyTrack-0.6.3-Ranked/)
+## Play
 
-## What you can do
+**Production:** https://rankeddd-vu65.vercel.app/
 
-- Race official, community, event, custom, and Extra Tracks.
-- Watch available replays and race against ghosts on supported tracks.
-- Earn Ranked and Event RP on eligible tracks. Check each event for its scoring and end time.
-- Explore Extra Tracks by name, style, difficulty, and progress. You can import a track to keep playing it later.
-- Personalize your racer in Racer Studio. Some designs unlock as you play.
+**Source:** https://github.com/8326-pixel/PolyTrack-0.6.3-Rankeddd
 
-Unverified results may appear while replay checks are pending. Their status can change after verification. Extra Tracks marked unranked do not award Ranked RP.
+The production site is a static Vercel deployment. It does not require a build server at runtime.
+
+## Features
+
+- Official, community, event, custom, and Extra Tracks
+- Ranked and Event leaderboards
+- Personal-best replays and supported ghost racing
+- Racer Studio customization
+- Cross-network multiplayer using WebRTC with TURN fallback
+- Saved progress through browser storage and the connected ranked services
+
+## Multiplayer
+
+Use the in-game multiplayer Host/Join flow. The custom build uses the community Firebase/WebRTC signaling path rather than forcing the first-party Kodub multiplayer socket.
+
+The connection UI reports whether the match used a direct connection or a relay. Direct WebRTC can fail on restrictive networks, so the TURN broker is used as a fallback.
 
 ## Controls
 
-Use the controls shown in-game for driving. In leaderboards, number keys select racers, Enter or Space starts a race, and arrow keys or A/D change pages when you are not typing. Racer Studio supports Shift+1 through Shift+4 to switch tabs.
+Use the controls shown in-game for driving. Leaderboards support the keyboard shortcuts shown by the game, and Racer Studio supports Shift+1 through Shift+4 for its tabs.
 
-PolyTrack was created by Kodub. Community tracks remain credited to their respective creators, including DoraChad and the KackyThrowback contributors where applicable. This is a community Ranked edition, not Kodub's official site.
+## Deployment
+
+The Vercel deployment is intentionally static:
+
+- Framework: Other
+- Build command: `true`
+- Install command: `true`
+- Output directory: `.`
+
+The WASM asset is served with the correct `application/wasm` content type.
+
+## Important note
+
+PolyTrack was created by Kodub. This repository is a community edition and is not the official PolyTrack website.
+
+Community tracks remain credited to their respective creators.
