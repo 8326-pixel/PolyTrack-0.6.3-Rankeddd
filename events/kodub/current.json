@@ -1,14 +1,14 @@
 {
-  "serverTime": "2026-09-27T22:52:14.638Z",
+  "serverTime": "2026-10-11T23:29:24.096Z",
   "current": {
-    "trackId": "ee0befb4adf0351b40f066e27264de42ba62281ba564c942f6f3c3f5cda36998",
-    "name": "Horrice",
-    "author": "Karpin_",
-    "lastModified": "2026-09-20T04:39:16.000Z",
+    "trackId": "bcc7ad7cd3f7fc536dd6b2e966df5136df78b1567a823b9c67a9ff65dfb5b3ff",
+    "name": "Velvoire",
+    "author": "Jurre",
+    "lastModified": "2026-10-09T22:42:56.000Z",
     "environment": 0,
-    "endTime": "2026-10-04T20:00:00.000Z",
-    "trackUrl": "assets/43e09022e4aeae3a15b0e6d74afc2cb5704c962cc1aa05fb54448034bd26d901.track",
-    "thumbnailUrl": "assets/404a308bd31338cdefdbd9072c78271d17e4d668ba32201518b2f493755559cc.webp",
-    "coverUrl": "assets/381639fb963f3588a4c3f7c3487976f840a4c89987ad8c49f2c3f96443af2fec.webp"
+    "endTime": "2026-10-18T20:00:00.000Z",
+    "trackUrl": "assets/df61cff5a4982b0303bffb0a3a346bc26a2b031d7b1bfec1683acd2b26ceff65.track",
+    "thumbnailUrl": "assets/c85a1753fc8131837197e2586fc11b4bae15f6bdbeb1f810dfba4a172c430105.webp",
+    "coverUrl": "assets/9fc4918b7ab0eae72fc1f1b39b098b543863cafd145b820f70c614bc5ad7d735.webp"
   }
 }
