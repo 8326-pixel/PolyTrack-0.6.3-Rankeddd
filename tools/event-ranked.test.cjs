@@ -62,6 +62,27 @@ test('event row never invents Overall RP, provisional or missing metrics',()=>{
 test('unknown event profile opens honest dialog without run reads',()=>{
  const {ctx,elements}=setup();const content={dataset:{}},popup={};elements.set('overallProfileContent',content);elements.set('overallProfilePopup',popup);let opened=false;ctx.openRankedDialog=p=>{assert.equal(p,popup);opened=true;};vm.runInContext(extract('openRankedProfile'),ctx);ctx.openRankedProfile('unknown');assert(opened);assert.match(content.innerHTML,/No Overall score or track results are inferred/);
 });
+test('event launch does not wait for Firebase bootstrap before opening the native track',()=>{
+ const client=fs.readFileSync(path.join(__dirname,'..','events','client.mjs'),'utf8');
+ const start=client.indexOf('  async function race(period');
+ const end=client.indexOf('  async function openEvent',start);
+ assert.ok(start>=0&&end>start);
+ const body=client.slice(start,end);
+ assert.equal(body.includes('bridge.ready()'),false);
+ assert.ok(body.indexOf('bridge.openTrack(period.trackId)')>=0);
+});
+
+test('event finish persistence is deferred after the native finish callback',()=>{
+ const client=fs.readFileSync(path.join(__dirname,'..','events','client.mjs'),'utf8');
+ const start=client.indexOf('  function captured(run)');
+ const end=client.indexOf('  function ensureCapture()',start);
+ assert.ok(start>=0&&end>start);
+ const body=client.slice(start,end);
+ assert.match(body,/deferCapturedPersistence\(eventRun\)/);
+ assert.match(body,/write\(QUEUE,keepEventBest/);
+ assert.doesNotMatch(body,/write\(BEST,best\)\s*;/);
+});
+
 test('manual refresh selects event fetch and normal category selection does not open totals dialog',()=>{
  const {ctx}=setup();let forced=false;ctx.fetchEventTotals=force=>forced=force;vm.runInContext(extract('requestRankedRefresh'),ctx);ctx.requestRankedRefresh();assert(forced);assert.doesNotMatch(extract('setOverallCategory'),/ui\.totals/);assert.match(source,/window\.__pt062OpenRankedEvents=function/);assert.match(extract('renderEntries'),/renderEventEntries\(listEl\)/);
 });
