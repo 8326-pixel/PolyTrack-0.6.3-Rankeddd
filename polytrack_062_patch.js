@@ -4502,16 +4502,38 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     closeOverallPanel(panel);
     const play=[...document.querySelectorAll('.main-buttons-container button')].find((button)=>button.textContent.trim()==='Play'&&isElementVisible(button));
     if(play)play.click();
-    let attempts=0;
-    const reveal=()=>{
-      attempts++;
-      const title=[...document.querySelectorAll('.track-title p')].find((node)=>node.textContent.trim()===info.name);
-      const button=title?.closest('button');
-      if(button&&event){button.click();return;}
-      if(button){button.click();return;}
-      if(attempts<30)setTimeout(reveal,100);
+
+    let done=false,frame=0,observer=null,timeout=0,attempts=0;
+    const findButton=()=>{
+      const root=document.querySelector('.track-selection-ui');
+      const titles=root?[...root.querySelectorAll('.track-title p')]:[];
+      const title=titles.find((node)=>node.textContent.trim()===info.name);
+      return title?.closest('button')||null;
     };
-    setTimeout(reveal,120);
+    const finish=(button)=>{
+      if(done)return;
+      done=true;
+      if(frame)cancelAnimationFrame(frame);
+      if(timeout)clearTimeout(timeout);
+      observer?.disconnect();
+      button?.click();
+    };
+    const reveal=()=>{
+      frame=0;
+      if(done)return;
+      const button=findButton();
+      if(button){finish(button);return;}
+      if(++attempts<300)frame=requestAnimationFrame(reveal);
+      else{done=true;observer?.disconnect();}
+    };
+    const schedule=()=>{
+      if(done||frame)return;
+      frame=requestAnimationFrame(reveal);
+    };
+    observer=new MutationObserver(schedule);
+    observer.observe(document.querySelector('#ui')||document.body,{subtree:true,childList:true});
+    timeout=setTimeout(()=>{if(!done){done=true;observer?.disconnect();if(frame)cancelAnimationFrame(frame);}},5000);
+    schedule();
   }
   function trackSummaryLine(label,finish,fallback){
     if(!finish?.trackId) return `<div class="profile-result muted no-track" aria-label="${escapeHtml(label)} is not available"><div><b>${label}</b><span>N/A</span><small>${escapeHtml(fallback)}</small></div></div>`;
@@ -6765,7 +6787,11 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     ensurePanel();
     hookLegacyNetworking();
     hookMultiplayerNetworking();
-    ensureFirestoreBootstrap();
+    // Firestore is lazy: event track launch and core local racing must not
+    // wait for Firebase's three-script bootstrap.
+    const warmFirestore=()=>{void ensureFirestoreBootstrap();};
+    if(typeof requestIdleCallback==='function')requestIdleCallback(warmFirestore,{timeout:3000});
+    else setTimeout(warmFirestore,1500);
     injectRankingsButton();
     setUnofficialMessage();
     ensurePersistentInfoBranding();
