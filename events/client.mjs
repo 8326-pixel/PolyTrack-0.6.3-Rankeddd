@@ -156,17 +156,35 @@ export function installEvents(bridge){
       }
     }finally{hasPending=read(QUEUE,[]).length>0;flushing=false;}
   }
+  function persistCapturedEvent(eventRun){
+    if(!eventRun)return;
+    // Keep the finish callback lightweight: native finish UI should not wait for
+    // serializing the entire PB/replay indexes to localStorage.
+    try{
+      write(BEST,bestRecords);
+      const replays=read(REPLAYS,[]);
+      cacheWrite(REPLAYS,[{...eventRun,at:now()},...(Array.isArray(replays)?replays:[]).filter(row=>row.periodId!==eventRun.periodId||row.accountId!==eventRun.accountId)].slice(0,8));
+    }catch{}
+  }
+  function deferCapturedPersistence(eventRun){
+    const persist=()=>{persistCapturedEvent(eventRun);void flush();};
+    if(typeof requestIdleCallback==='function')requestIdleCallback(persist,{timeout:750});
+    else setTimeout(persist,0);
+  }
   function captured(run){
     const eventRun=sessions.finish(run);if(!eventRun)return;
     latestFinish=eventRun;
     const best=bestRecords,key=eventRun.periodId+'_'+eventRun.accountId;
     if(best[key]&&best[key].timeMs<=eventRun.timeMs)return;
+    best[key]={timeMs:eventRun.timeMs,attemptId:eventRun.attemptId,carStyle:eventRun.carStyle,at:now()};
     ownReceiptAt.delete(key);
     ownReceipts.delete(key);
-    write(QUEUE,keepEventBest(read(QUEUE,[]),eventRun));hasPending=true;
-    best[key]={timeMs:eventRun.timeMs,attemptId:eventRun.attemptId,carStyle:eventRun.carStyle,at:now()};write(BEST,best);
-    const replays=read(REPLAYS,[]);cacheWrite(REPLAYS,[{...eventRun,at:now()},...(Array.isArray(replays)?replays:[]).filter(row=>row.periodId!==eventRun.periodId||row.accountId!==eventRun.accountId)].slice(0,8));
-    message('New event PB saved locally.');tick();void flush();
+    hasPending=true;
+    // The queue is the durable upload hand-off and stays synchronous. The
+    // larger PB/replay indexes are persisted after the native callback returns.
+    try{write(QUEUE,keepEventBest(read(QUEUE,[]),eventRun));}catch{}
+    message('New event PB saved locally.');tick();
+    deferCapturedPersistence(eventRun);
   }
   function ensureCapture(){
     if(capture)return;
@@ -179,9 +197,24 @@ export function installEvents(bridge){
     if(direct)close();
     shell();selected=period;body('<p role="status">Opening event...</p><p>You can cancel with Close. Your saved PBs are unchanged.</p>');message('Preparing event racing.');
     const attempt=++entryRequest,accountId=bridge.accountId();
-    let timer;
-    try{if(now()>=period.endsAt)throw Error('This event has ended.');await Promise.race([bridge.ready(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Event preparation timed out. Close and try again.')),12000);})]);if(attempt!==entryRequest||accountId!==bridge.accountId()||!dialog||selected?.id!==period.id)return false;ensureCapture();eventIntent=sessions.enter(period,bridge.accountId());close();message('Opening event track...');nativeOpenPermit=true;try{bridge.openTrack(period.trackId);}finally{nativeOpenPermit=false;}tick();void refreshNativeEventData(period,sessions.current());return true;}
-    catch(error){if(attempt===entryRequest)message(error.message);return false;}finally{clearTimeout(timer);}
+    try{
+      if(now()>=period.endsAt)throw Error('This event has ended.');
+      if(attempt!==entryRequest||accountId!==bridge.accountId()||!dialog||selected?.id!==period.id)return false;
+      // Firebase is only required for cloud submission/read-back. Never block
+      // native track loading on database bootstrap.
+      ensureCapture();
+      eventIntent=sessions.enter(period,bridge.accountId());
+      close();
+      message('Opening event track...');
+      nativeOpenPermit=true;
+      try{bridge.openTrack(period.trackId);}finally{nativeOpenPermit=false;}
+      tick();
+      void refreshNativeEventData(period,sessions.current());
+      return true;
+    }catch(error){
+      if(attempt===entryRequest)message(error.message);
+      return false;
+    }
   }
   async function openEvent({kind,trackId}={}){
     sessions.leave();eventIntent=null;tick();
@@ -446,8 +479,14 @@ export function installEvents(bridge){
   }
   async function refreshNativeEventData(period,session){
     const accountId=bridge.accountId();
-    try{await snapshot(period);await readReceipt(period.id,accountId);if(!session||sessions.current()!==session||bridge.accountId()!==accountId)return;if(nativeView)nativeView.signature='';syncNativeBoard(session);}
-    catch{if(sessions.current()===session)message('Event standings are unavailable. Local event finishes still save.');}
+    try{
+      await Promise.all([snapshot(period),readReceipt(period.id,accountId)]);
+      if(!session||sessions.current()!==session||bridge.accountId()!==accountId)return;
+      if(nativeView)nativeView.signature='';
+      syncNativeBoard(session);
+    }catch{
+      if(sessions.current()===session)message('Event standings are unavailable. Local event finishes still save.');
+    }
   }
   function eventDisplayRows(period){
     const accountId=bridge.accountId();
