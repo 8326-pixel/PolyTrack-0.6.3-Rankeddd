@@ -314,6 +314,8 @@ export function installEvents(bridge){
     }catch{if(token===requestId)body('<p>Past events are unavailable. Please try again.</p>');}
   }
   let nativeView=null,eventIntent=null;
+  let liveBoardPollAt=0;
+  let liveBoardPollPromise=null;
   let launching=false,nativeOpenPermit=false,nativePlayPermit=false,selectedGhost=null,replayRequest=0,topSelectionToken=0,eventTopPrefixUntil=0,eventTopHeld=false,eventDigitBoard=null;const selectedGhosts=new Map(),replayCache=new Map(),preparedGhosts=new Map(),eventDigitsHeld=new Map(),eventDigitsConsumed=new Set();
   const carImages=new Map(),validatedCarStyles=new Map();let profileStyles=new Map(),profilesAt=0,rendering=0;const renderQueue=[];
   function validCachedCarStyle(style){
@@ -518,6 +520,32 @@ export function installEvents(bridge){
     let rank=0;for(let index=0;index<rows.length;index++){if(!index||rows[index].timeMs!==rows[index-1].timeMs)rank=index+1;rows[index].rank=rank;}
     return {rows,board};
   }
+  async function refreshLiveEventBoard(session){
+    if(!session||document.visibilityState!=='visible'||!nativeView?.board?.isConnected)return;
+    const nowMs=now();
+    if(liveBoardPollPromise||nowMs-liveBoardPollAt<2000)return;
+    liveBoardPollAt=nowMs;
+    const period=knownPeriods.get(session.periodId)||(catalog.periods||[]).find(p=>p.id===session.periodId);
+    if(!period||nowMs>=period.endsAt)return;
+    const accountId=bridge.accountId();
+    liveBoardPollPromise=(async()=>{
+      try{
+        const previous=cache.get(period.id);
+        const next=await snapshot(period,true);
+        if(sessions.current()!==session||bridge.accountId()!==accountId||nativeView?.periodId!==period.id)return;
+        if(!previous||Number(next?.updatedAt||0)>Number(previous?.updatedAt||0)||next?.saved!==previous?.saved){
+          if(nativeView)nativeView.signature='';
+          syncNativeBoard(session);
+        }
+      }catch{
+        // Keep the last good board on transient network errors.
+      }finally{
+        liveBoardPollPromise=null;
+      }
+    })();
+    return liveBoardPollPromise;
+  }
+
   function syncNativeBoard(session){
     const root=document.querySelector('.track-info-ui');
     if(!session||!root){clearNativeView();return;}
@@ -531,7 +559,7 @@ export function installEvents(bridge){
       if(!original)return;
       if(statusText==='Opening event track...')message('');
       const board=document.createElement('div');board.className='leaderboard-ui sq-event-board';
-      board.title='A number toggles one event ghost. T then a number selects the top group. Hold two numbers for a range. C clears ghosts.';
+      board.title='LIVE event leaderboard. Shows all currently published and pending event racers. A number toggles a ghost; C clears ghosts.';
       // Keep the original instance alive for native disposal and its Back handler.
       board.style.setProperty('display','flex','important');
       board.innerHTML='<h2>Event leaderboard</h2><h3></h3><div class="total-players fade-in"></div><div class="container"></div><div class="pages"></div><div class="button-wrapper"><button type="button" class="button back"><img class="button-icon" src="images/back.svg"> Back</button><button type="button" class="button sq-event-refresh">Refresh</button></div>';
@@ -589,8 +617,8 @@ export function installEvents(bridge){
     }
     view.signature=signature;
     const styles=rows.map(row=>cachedCarStyle(row,period));
-    view.board.querySelector('h3').textContent=eventName(period.kind)+' event';
-    view.board.querySelector('.total-players').textContent=rows.length+(rows.length===1?' racer':' racers')+(board?.saved?' - saved standings':'');
+    view.board.querySelector('h3').textContent='LIVE · '+eventName(period.kind)+' event';
+    view.board.querySelector('.total-players').textContent=rows.length+(rows.length===1?' racer':' racers')+' · updates automatically'+(board?.saved?' · saved fallback':'');
     const count=Math.max(1,Math.ceil(rows.length/20));view.page=Math.min(view.page,count-1);
     const container=view.board.querySelector('.container');view.carObserver?.disconnect();container.replaceChildren();
     for(const [index,row] of rows.slice(view.page*20,view.page*20+20).entries()){
@@ -632,6 +660,8 @@ export function installEvents(bridge){
   function tick(){
     syncFinishPlace();
     void flush();
+    const liveSession=sessions.current();
+    if(liveSession)void refreshLiveEventBoard(liveSession);
     const ranked=document.getElementById('overallLeaderboardPanel');
     if(ranked?.getClientRects().length&&getComputedStyle(ranked).display!=='none')void loadCatalog().catch(()=>{});
     for(const [kind,selector] of [['weekly','.weekly-cup'],['daily','.daily-card']]){
