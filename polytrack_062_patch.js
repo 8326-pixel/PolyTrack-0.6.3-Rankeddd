@@ -85,7 +85,17 @@
       if(!document.querySelector('link[data-event-css]')){const link=document.createElement('link');link.rel='stylesheet';link.href=new URL('./events.css',eventsModuleUrl).href;link.dataset.eventCss='';document.head.append(link);}
       eventUi=installEvents({supportsEventGhost:()=>window.__pt062NativeEventGhostVersion===1,trackInfo,displayName:canonicalDisplayName,thumbnail:trackThumbnailMarkup,formatTime:formatRaceTime,accountId:activeRankedAccountId,require:__pt062WebpackRequire,ready:db,openTrack:id=>{if(id===nativeWeeklySelection?.trackId){const button=document.querySelector('.sq-kodub-weekly > button');if(!button)throw Error('Weekly track is unavailable');button.click();}else focusTrackFromRanked(id,{event:true});},startEventRace,watchEvent:(context,ghosts)=>{const root=document.querySelector('.track-info-ui'),watch=root?.__pt062EventWatch;if(!watch||watch.version!==1||watch.trackId!==context.trackId||activeRankedAccountId()!==context.accountId||Date.now()>=context.endsAt)throw Error('Event replay context changed');watch.open(ghosts);},openRankedEvents:()=>window.__pt062OpenRankedEvents?.(),
         readCatalog:()=>eventCloudRead('/v1/events/catalog','0.6.2_event_public','catalog'),
-        readSnapshot:id=>eventCloudRead('/v1/events/'+encodeURIComponent(id)+'/snapshot','0.6.2_event_public',id),
+        // Prefer the authoritative public Firestore document for live standings.
+        // This bypasses a stale edge-cache copy while keeping the broker as fallback.
+        readSnapshot:async id=>{
+          if(!/^[A-Za-z0-9_-]{1,64}$/.test(String(id||'')))throw Error('Invalid event identity');
+          try{
+            const database=await db();
+            const snap=await database.collection('0.6.2_event_public').doc(id).get({source:'server'});
+            if(snap.exists)return snap.data();
+          }catch{}
+          return eventCloudRead('/v1/events/'+encodeURIComponent(id)+'/snapshot','0.6.2_event_public',id);
+        },
         readReplay:async(periodId,accountId,runId=null)=>{
           if(!/^[A-Za-z0-9_-]{1,64}$/.test(periodId)||!/^[a-f0-9]{64}$/.test(accountId))throw Error('Invalid replay identity');
           if(runId!==null&&!/^[a-f0-9]{64}$/.test(runId))throw Error('Invalid recording identity');
