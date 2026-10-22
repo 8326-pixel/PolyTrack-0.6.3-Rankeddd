@@ -32,7 +32,7 @@ export function eventWorkerHandler(env, { request, authenticate, origins, contex
       catalog: () => cachedPublic('catalog', 20, () => runtime.service.catalog()),
       totals: () => cachedPublic('totals', 20, () => runtime.service.totals()),
       archiveMonth: month => cachedPublic('archive/' + month, 300, () => runtime.service.archiveMonth(month)),
-      snapshot: id => cachedPublic('snapshot/' + encodeURIComponent(id), 15, () => runtime.service.snapshot(id)) };
+      snapshot: id => cachedPublic('snapshot/' + encodeURIComponent(id), 1, () => runtime.service.snapshot(id)) };
     const events = createEventHandler({ service, authenticate, allowedOrigins: origins, enabled, allowRequest });
     if (incoming.method === 'GET' && url.pathname === '/v1/events/permanent-rolling-hills/snapshot') {
       const origin = incoming.headers.get('Origin') || '';
