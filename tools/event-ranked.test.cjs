@@ -62,6 +62,17 @@ test('event row never invents Overall RP, provisional or missing metrics',()=>{
 test('unknown event profile opens honest dialog without run reads',()=>{
  const {ctx,elements}=setup();const content={dataset:{}},popup={};elements.set('overallProfileContent',content);elements.set('overallProfilePopup',popup);let opened=false;ctx.openRankedDialog=p=>{assert.equal(p,popup);opened=true;};vm.runInContext(extract('openRankedProfile'),ctx);ctx.openRankedProfile('unknown');assert(opened);assert.match(content.innerHTML,/No Overall score or track results are inferred/);
 });
+test('live event snapshot prefers authoritative Firestore data',()=>{
+ const patch=fs.readFileSync(path.join(__dirname,'..','polytrack_062_patch.js'),'utf8');
+ const start=patch.indexOf("readSnapshot:async id=>");
+ const end=patch.indexOf("readReplay:async",start);
+ assert.ok(start>=0&&end>start);
+ const body=patch.slice(start,end);
+ assert.match(body,/collection\('0\.6\.2_event_public'\)/);
+ assert.match(body,/get\(\{source:'server'\}\)/);
+ assert.match(body,/eventCloudRead\(/);
+});
+
 test('event launch does not wait for Firebase bootstrap before opening the native track',()=>{
  const client=fs.readFileSync(path.join(__dirname,'..','events','client.mjs'),'utf8');
  const start=client.indexOf('  async function race(period');
