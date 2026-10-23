@@ -567,7 +567,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
   const RANKED_NOTIFY_QUEUE_KEY = 'polytrack-0.6.2-s1-ranked-notify-queue-v1';
   const STREAK_LEADER_CACHE_KEY = 'polytrack-0.6.2-streak-leader-v2';
   // Snapshots never expire. This only controls when another cloud check is allowed.
-  const OVERALL_REFRESH_CHECK_MS = 10 * 60 * 1000;
+  const OVERALL_REFRESH_CHECK_MS = 60 * 1000;
   const OVERALL_REBUILD_MIN_AGE_MS = 15 * 60 * 1000;
   const TRACK_REFRESH_MS = 10 * 60 * 1000;
   const RANKED_EDGE_BACKOFF_MS = 5 * 60 * 1000;
@@ -3845,7 +3845,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
       try{for(;;){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>6000000){await reader.cancel();throw Error('Planner data exceeds limit');}chunks.push(value);}}finally{reader.releaseLock();}
       const plain=new Uint8Array(length);let offset=0;for(const chunk of chunks){plain.set(chunk,offset);offset+=chunk.length;}
       const packed=JSON.parse(new TextDecoder().decode(plain));
-      if(!Array.isArray(packed.entries)||packed.entries.length>200||!Array.isArray(packed.resultTracks)||packed.resultTracks.length>500)return decodeRankedResults(data);
+      if(!Array.isArray(packed.entries)||packed.entries.length>500||!Array.isArray(packed.resultTracks)||packed.resultTracks.length>500)return decodeRankedResults(data);
       const byId=new Map(packed.entries.map(row=>[row.userId,row]));
       if(byId.size!==packed.entries.length)return decodeRankedResults(data);
       return decodeRankedResults({resultTracks:packed.resultTracks,entries:(data.entries||[]).map(row=>{
@@ -5281,7 +5281,14 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     // Cosmetic directory checks have their own cadence; a rankings refresh is
     // not a reason to read the same public profiles again.
     syncCosmeticDirectory(false);
-    if(!rankedFreshnessTimer)rankedFreshnessTimer=setInterval(()=>{if(isElementVisible(panel)){updateRankedFreshness();updateRankDurationLabels(panel);}},15000);
+    if(!rankedFreshnessTimer)rankedFreshnessTimer=setInterval(()=>{
+      if(!isElementVisible(panel))return;
+      updateRankedFreshness();
+      updateRankDurationLabels(panel);
+      if(overallCategory!=='events'&&overallLoadState.status!=='loading'&&Date.now()-Number(overallLoadState.checkedAt||0)>=30000){
+        void openPanel(false);
+      }
+    },15000);
     const dailyGrid=panel.querySelector('#overallDailyGrid');
     if(dailyGrid&&!alreadyVisible) dailyGrid.outerHTML=dailySpotlightMarkup();
     const trackScope=panel.querySelector('#overallTrackScope');
