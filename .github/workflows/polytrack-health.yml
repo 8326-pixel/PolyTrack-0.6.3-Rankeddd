@@ -89,5 +89,8 @@ jobs:
       - name: Install browser-test dependency
         run: npm ci --prefix tools/verifier --ignore-scripts
 
+      - name: Install Chromium for browser tests
+        run: npx --prefix tools/verifier playwright install --with-deps chromium
+
       - name: Run client tests
         run: npm run test:client
