@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea528a760a5f9d6f9f836f4b5f9f8776d0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
           cache: npm
@@ -39,7 +39,7 @@ jobs:
 
       - name: Validate worker source
         working-directory: workers/ranked
-        run: npm run check -- --help
+        run: node --check src/index.js
 
       - name: Deploy worker
         working-directory: workers/ranked
