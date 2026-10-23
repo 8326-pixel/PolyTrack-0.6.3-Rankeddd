@@ -103,3 +103,18 @@ test('category selector fetches events and loads Overall after event-only startu
  const {ctx,elements}=setup();elements.set('overallLeaderboardPanel',{querySelector:()=>null});ctx.recordLeaderboardUse=()=>{};ctx.refreshLeaderboardArcade=()=>{};ctx.syncCategorySelect=()=>{};let events=0,overall=0;ctx.fetchEventTotals=()=>events++;ctx.openRankedPanel=()=>overall++;vm.runInContext(extract('setOverallCategory'),ctx);
  ctx.overallCategory='overall';ctx.setOverallCategory('events');assert.equal(events,1);assert.equal(ctx.overallPage,0);ctx.setOverallCategory('overall');assert.equal(overall,1);
 });
+
+
+test('all-player leaderboard is exposed and includes provisional racers',()=>{
+  assert.match(source,/allPlayers:'All Players'/);
+  assert.match(source,/const primary=\['allPlayers','overall'/);
+  assert.match(source,/<option value="allPlayers">All Players<\\/option>/);
+  assert.match(source,/if\(overallCategory==='allPlayers'\)\{/);
+  const {ctx}=setup();
+  ctx.overallCategory='allPlayers';
+  ctx.overallEntriesCache=[row('ranked',10,1),{...row('new',5,0),provisional:true,raceCount:1}];
+  const rows=ctx.sortedOverallEntries();
+  assert.deepEqual(Array.from(rows,r=>r.userId),['ranked','new']);
+  assert.equal(rows[1].globalRank,0);
+  assert.equal(rows[1].categoryRank,2);
+});
