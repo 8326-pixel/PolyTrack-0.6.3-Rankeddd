@@ -108,7 +108,7 @@ test('category selector fetches events and loads Overall after event-only startu
 test('all-player leaderboard is exposed and includes provisional racers',()=>{
   assert.match(source,/allPlayers:'All Players'/);
   assert.match(source,/const primary=\['allPlayers','overall'/);
-  assert.match(source,/<option value="allPlayers">All Players<\\/option>/);
+  assert.ok(source.includes('<option value="allPlayers">All Players</option>'));
   assert.match(source,/if\(overallCategory==='allPlayers'\)\{/);
   const {ctx}=setup();
   ctx.overallCategory='allPlayers';
