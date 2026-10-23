@@ -86,5 +86,8 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
 
+      - name: Install browser-test dependency
+        run: npm ci --prefix tools/verifier --ignore-scripts
+
       - name: Run client tests
         run: npm run test:client
