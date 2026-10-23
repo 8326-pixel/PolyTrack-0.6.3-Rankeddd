@@ -5363,6 +5363,11 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
   }
 
   function rankedBrokerUrl(){
+    const host=String(window.location.hostname||'').toLowerCase();
+    // Production Vercel uses a same-origin proxy so the browser can reach the
+    // Worker without depending on its CORS allowlist. The proxy preserves the
+    // fast Worker backend and forwards authenticated event submissions.
+    if(host.endsWith('.vercel.app'))return String(window.location.origin).replace(/\/+$/,'')+'/api/ranked';
     const configured=String(window.POLYTRACK_RANKED_BROKER_URL||'').trim();
     if(!configured)return '';
     try{
