@@ -12,6 +12,17 @@ const validRun = (row) => ({ replay: 'structural-replay', replayHash: 'a'.repeat
 const acceptedVerdict = row => ({key:verificationKey(row),status:'verified',verifierVersion:VERIFIER_VERSION,engineDigest:VERIFIER_ENGINE_DIGEST});
 const verifiedEntries = (rows, trackId) => computeTrackEntries(rows, trackId, {}, Object.fromEntries(rows.map(row => [row.accountId, acceptedVerdict(row)])));
 
+test('client overall refresh window is sixty seconds',()=>{
+ const source=fs.readFileSync(path.join(__dirname,'..','..','polytrack_062_patch.js'),'utf8');
+ assert.match(source,/OVERALL_REFRESH_CHECK_MS = 60 \\* 1000/);
+ assert.doesNotMatch(source,/OVERALL_REFRESH_CHECK_MS = 10 \\* 60 \\* 1000/);
+ assert.match(source,/packed\.entries\.length>500/);
+});
+test('overall publication limit is five hundred racers',()=>{
+ const source=fs.readFileSync(new URL('../src/index.js',import.meta.url),'utf8');
+ assert.match(source,/const OVERALL_LIMIT = 500/);
+ assert.match(source,/const OVERALL_BOARD_LIMIT = 500/);
+});
 test('solo tracks have zero weight and populated official tracks gain weight', () => {
   assert.equal(trackWeightParts(TRACK, 1).finalWeight, 0);
   assert.ok(trackWeightParts(TRACK, 20).finalWeight > trackWeightParts(TRACK, 10).finalWeight);
