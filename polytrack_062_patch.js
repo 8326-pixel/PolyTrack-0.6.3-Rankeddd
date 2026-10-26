@@ -975,7 +975,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
   const LEADERBOARD_USAGE_KEY='polytrack-0.6.2-leaderboard-arcade-v1';
   const PLAYTIME_KEY='polytrack-0.6.2-active-playtime-v1';
   const LEADERBOARD_LABELS={events:'Event RP',allPlayers:'All Players',overall:'Overall RP',casual:'Casual RP',skill:'Best 10 skill',consistency:'All-track depth',pbs:'PBs set',playtime:'Active time',veterans:'Racing longest',rising:'Rising racers',wins:'Track wins',medals:'Podium points',tracks:'Tracks completed',weight:'Total track weight',average:'Average place',competitiveAverage:'Competitive average',podiumRate:'Podium rate',topTracks:'Top Tracks',official:'Official tracks',community:'Community tracks'};
-  const LEADERBOARD_INFO={events:'Lifetime points from verified event PBs. Higher is better. Event RP is separate from Overall RP.',allPlayers:'Every racer in the shared Ranked snapshot, including provisional and new players. Ranked racers keep their Overall RP order; provisional racers remain visible below them.',overall:'Your combined Ranked score. Lower is better.',casual:'Permanent Casual RP from distinct recognized tracks completed with physics verification. Higher is better. This nondecreasing total is separate from Overall RP.',average:'Your literal average finishing place across every eligible Ranked result.',competitiveAverage:'Average place on recognized tracks with at least five racers. Custom and small-field tracks are excluded.',tracks:'Number of distinct Ranked tracks completed.',medals:'Podium points from recognized tracks with sufficiently populated fields.',rising:'Progress adjusted for how recently the racer joined and how many Ranked tracks they completed.',topTracks:'Tracks ordered by their current Ranked weight.',skill:'Weighted average of each racer’s best ten results. Lower is better.',consistency:'Weighted performance across all eligible results with weak outliers limited. Lower is better.',wins:'First-place finishes on recognized tracks with at least five racers.',podiumRate:'Eligible podium finishes divided by eligible tracks. At least three eligible tracks are required.',weight:'Combined weight of all eligible completed tracks.',pbs:'Accepted personal-best improvements saved to Ranked.',playtime:'Visible active play time saved with PB updates.',veterans:'Time since the racer’s earliest saved Ranked result.'};
+  const LEADERBOARD_INFO={events:'Lifetime points from verified event PBs. Higher is better. Event RP is separate from Overall RP.',allPlayers:'Every public racer profile, including players without a top-ranked score. Ranked racers keep their current rank; new racers are still listed.',overall:'Your combined Ranked score. Lower is better.',casual:'Permanent Casual RP from distinct recognized tracks completed with physics verification. Higher is better. This nondecreasing total is separate from Overall RP.',average:'Your literal average finishing place across every eligible Ranked result.',competitiveAverage:'Average place on recognized tracks with at least five racers. Custom and small-field tracks are excluded.',tracks:'Number of distinct Ranked tracks completed.',medals:'Podium points from recognized tracks with sufficiently populated fields.',rising:'Progress adjusted for how recently the racer joined and how many Ranked tracks they completed.',topTracks:'Tracks ordered by their current Ranked weight.',skill:'Weighted average of each racer’s best ten results. Lower is better.',consistency:'Weighted performance across all eligible results with weak outliers limited. Lower is better.',wins:'First-place finishes on recognized tracks with at least five racers.',podiumRate:'Eligible podium finishes divided by eligible tracks. At least three eligible tracks are required.',weight:'Combined weight of all eligible completed tracks.',pbs:'Accepted personal-best improvements saved to Ranked.',playtime:'Visible active play time saved with PB updates.',veterans:'Time since the racer’s earliest saved Ranked result.'};
   const PROFILE_COSMETICS_KEY='polytrack-0.6.2-profile-cosmetics-v1';
   const PROFILE_COSMETIC_OPTIONS={
     theme:[['classic','PolyTrack blue',0],['cyan','Electric cyan',0],['ocean','Deep ocean',1],['ice','Ice blue',3],['mono','Monochrome','playtime:3600000'],['sunset','Sunset',5],['neon','Neon arcade',5],['forest','Forest',8],['ember','Ember',12],['crimson','Crimson',16],['podium','Champion','podium'],['beta','Beta neon','beta']],
@@ -3875,6 +3875,86 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     });
   }
   let overallCloudRetryAt=0;
+  function mergeAllPlayerDirectoryRows(profiles){
+    const rankedById=new Map((overallEntriesCache||[])
+      .map(entry=>[cleanUserId(entry?.userId||entry?.accountId||''),entry])
+      .filter(([id])=>id));
+    const merged=new Map();
+    for(const row of allPlayersDirectoryRows||[]){
+      const id=cleanUserId(row?.userId||row?.accountId||'');
+      if(id)merged.set(id,row);
+    }
+    for(const profile of Array.isArray(profiles)?profiles:[]){
+      const id=cleanUserId(profile?.accountId||profile?.userId||'');
+      if(!id)continue;
+      const ranked=rankedById.get(id)||{};
+      const previous=merged.get(id)||{};
+      const name=String(profile?.name||profile?.nickname||ranked?.name||previous?.name||'Guest').slice(0,32);
+      merged.set(id,{
+        ...previous,
+        ...ranked,
+        userId:id,
+        accountId:id,
+        name,
+        nickname:name,
+        countryCode:String(profile?.countryCode||ranked?.countryCode||previous?.countryCode||'').slice(0,8).toUpperCase(),
+        carStyle:String(profile?.carStyle||ranked?.carStyle||previous?.carStyle||'').slice(0,128),
+        carColors:normalizeCarColorId(ranked?.carColors||previous?.carColors||''),
+        carColorId:normalizeCarColorId(ranked?.carColorId||ranked?.carColors||previous?.carColorId||''),
+        accountCreatedAt:Number(ranked?.accountCreatedAt||previous?.accountCreatedAt||profile?.createdAt||profile?.updatedAt||0)||0,
+        raceCount:Number(ranked?.raceCount||previous?.raceCount||0)||0,
+        score:Number.isFinite(Number(ranked?.score))?Number(ranked.score):Number.isFinite(Number(previous?.score))?Number(previous.score):null,
+        provisional:ranked?.provisional!==false,
+        totalTracks:Number(ranked?.totalTracks||previous?.totalTracks||TOTAL_TRACKS)||TOTAL_TRACKS,
+        directoryOnly:!ranked?.userId
+      });
+    }
+    allPlayersDirectoryRows=[...merged.values()].filter(row=>row.userId);
+    allPlayersDirectoryLoadedAt=Date.now();
+    return allPlayersDirectoryRows;
+  }
+
+  async function loadAllPlayersDirectory(force=false){
+    if(allPlayersDirectoryLoading)return allPlayersDirectoryRows;
+    if(!force&&allPlayersDirectoryRows.length&&Date.now()-allPlayersDirectoryLoadedAt<ALL_PLAYERS_DIRECTORY_CACHE_MS)return allPlayersDirectoryRows;
+    allPlayersDirectoryLoading=true;
+    allPlayersDirectoryError='';
+    try{
+      const saved=readOverallSnapshotCache()?.entries||[];
+      if(saved.length&&!overallEntriesCache.length)overallEntriesCache=saved;
+      const fire=await db();
+      const query=fire.collection(COLLECTIONS.profilesPublic)
+        .orderBy(window.firebase.firestore.FieldPath.documentId(),'asc')
+        .limit(ALL_PLAYERS_DIRECTORY_LIMIT);
+      const snapshot=await withTimeout(query.get({source:'server'}),12000,'Player directory timed out.');
+      const profiles=[];
+      snapshot.forEach(doc=>{
+        const data=doc.data()||{};
+        profiles.push({...data,accountId:data.accountId||doc.id});
+      });
+      allPlayersDirectoryRows=[];
+      mergeAllPlayerDirectoryRows(profiles);
+      if(saved.length)mergeAllPlayerDirectoryRows(saved);
+      if(snapshot.size>=ALL_PLAYERS_DIRECTORY_LIMIT){
+        allPlayersDirectoryError='Player directory reached the 5000-player safety limit.';
+      }
+      return allPlayersDirectoryRows;
+    }catch(error){
+      allPlayersDirectoryError=String(error?.message||error||'Player directory unavailable');
+      if(!allPlayersDirectoryRows.length){
+        const saved=readOverallSnapshotCache()?.entries||[];
+        allPlayersDirectoryRows=saved.map(entry=>({...entry,directoryOnly:false}));
+      }
+      return allPlayersDirectoryRows;
+    }finally{
+      allPlayersDirectoryLoading=false;
+      if(overallCategory==='allPlayers'){
+        renderEntries();
+        updateRankedFreshness();
+      }
+    }
+  }
+
   async function fetchOverallEntries(forceRefresh=false){
     let direct = [];
     const cached = readOverallSnapshotCache();
@@ -4165,10 +4245,16 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
   }
 
   const OVERALL_PAGE_SIZE = 15;
+  const ALL_PLAYERS_DIRECTORY_LIMIT = 5000;
+  const ALL_PLAYERS_DIRECTORY_CACHE_MS = 10 * 60 * 1000;
   let overallEntriesCache = [];
   let overallTrackSummariesCache = [];
   let overallPage = 0;
   let overallCategory = 'overall';
+  let allPlayersDirectoryRows = [];
+  let allPlayersDirectoryLoadedAt = 0;
+  let allPlayersDirectoryLoading = false;
+  let allPlayersDirectoryError = '';
   let rankedFiltersModule=null,rankedFiltersUi=null,rankedFiltersUiPromise=null,rankedFilterResult=null,rankedFiltersSyncing=false;
   let rankedFilterSnapshotMeta={complete:false,totalEntries:null,publishedEntries:null,totalEntriesExact:false,ranksExact:false};
   const FILTERABLE_RANKED_CATEGORIES=new Set(['overall','average','competitiveAverage','tracks','medals','rising','skill','consistency','wins','podiumRate','weight','pbs','playtime','veterans','official','community','casual']);
@@ -4359,6 +4445,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
   function currentLeaderboardCount(){
     if(overallCategory==='events')return sortedEventEntries().length;
     if(overallCategory==='topTracks')return loadedTrackRankingRows().length;
+    if(overallCategory==='allPlayers')return allPlayersDirectoryRows.length||sortedOverallEntries().length;
     if(rankedFilterResult?.available&&rankedFilterResult.filter?.category===overallCategory)return rankedFilterResult.rows.length;
     return sortedOverallEntries().length;
   }
@@ -4410,7 +4497,9 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
   }
   function sortedOverallEntries(){
     if(overallCategory==='events')return sortedEventEntries();
-    let rows=[...overallEntriesCache];
+    let rows=overallCategory==='allPlayers'
+      ? [...(allPlayersDirectoryRows.length?allPlayersDirectoryRows:overallEntriesCache)]
+      : [...overallEntriesCache];
     if(overallCategory==='allPlayers'){
       rows.sort((a,b)=>{
         const ar=Number(a?.rank||0),br=Number(b?.rank||0);
@@ -5198,7 +5287,9 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
     if(filterResult?.available&&FILTERABLE_RANKED_CATEGORIES.has(filterResult.filter?.category)&&filterResult.filter.category!==overallCategory){
       overallCategory=filterResult.filter.category;recordLeaderboardUse(overallCategory);refreshLeaderboardArcade();syncCategorySelect(document);overallPage=0;renderEntries();return;
     }
-    const allEntries = filterResult?.available?filterResult.rows:baseEntries;
+    const allEntries = overallCategory==='allPlayers'
+      ? baseEntries
+      : (filterResult?.available?filterResult.rows:baseEntries);
     document.getElementById('overallLeaderboardPanel')?.setAttribute('data-category',overallCategory);
     updateOverallPager();
     if (!allEntries.length){
@@ -5297,7 +5388,7 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
       if(!isElementVisible(panel))return;
       updateRankedFreshness();
       updateRankDurationLabels(panel);
-      if(overallCategory!=='events'&&overallLoadState.status!=='loading'&&Date.now()-Number(overallLoadState.checkedAt||0)>=30000){
+      if(overallCategory!=='events'&&overallCategory!=='allPlayers'&&overallLoadState.status!=='loading'&&Date.now()-Number(overallLoadState.checkedAt||0)>=30000){
         void openPanel(false);
       }
     },15000);
@@ -5326,6 +5417,25 @@ const q0='7f2a',q1='b19e',q2='d44c',q3='9a01';
       }
     },5000);
     try {
+      if(overallCategory==='allPlayers'){
+        await loadAllPlayersDirectory(shouldForceRefresh);
+        clearTimeout(slowTimer);
+        overallLoadState={
+          status:allPlayersDirectoryError?'stale':'cloud',
+          message:allPlayersDirectoryError||'Public player directory',
+          fetchedAt:Date.now(),
+          checkedAt:Date.now(),
+          nextRefreshAt:Date.now()+ALL_PLAYERS_DIRECTORY_CACHE_MS,
+          complete:allPlayersDirectoryError==='',
+          totalEntries:allPlayersDirectoryRows.length,
+          totalEntriesExact:allPlayersDirectoryError==='',
+          publishedEntries:allPlayersDirectoryRows.length,
+          ranksExact:false
+        };
+        renderEntries();
+        updateRankedFreshness();
+        return;
+      }
       const entries = await withTimeout(fetchOverallEntries(shouldForceRefresh),12000,'Ranked snapshot timed out.');
       clearTimeout(slowTimer);
       if (generation !== overallLoadGeneration) return;
